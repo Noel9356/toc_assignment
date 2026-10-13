@@ -1,13 +1,3 @@
-#!/usr/bin/env python3
-"""PDPA Data Masking - ระบบเซ็นเซอร์ข้อมูลลูกค้าเพื่อความปลอดภัย
-
-Web application ที่ใช้ regex ของ Python (โมดูล re) ในการเซ็นเซอร์ข้อมูลส่วนบุคคล
-ไม่ต้องติดตั้งไลบรารีเพิ่ม (ใช้ http.server ของ standard library)
-
-วิธีรัน:   python app.py            แล้วเปิด http://localhost:8000
-ทดสอบ:    python app.py --test     (ตรวจตัวอย่างจากโจทย์ทั้งหมด)
-"""
-
 import json
 import os
 import re
@@ -16,11 +6,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MAX_BODY_BYTES = 1_000_000
 
-# ---------------------------------------------------------------------------
-# Regex: รวมทุกรูปแบบเป็น pattern เดียว (alternation) เพื่อให้สแกนข้อความรอบเดียว
-# และไม่ให้ผลลัพธ์ของแต่ละกฎซ้อนทับกัน ลำดับสำคัญ: email -> card -> phone -> dob -> address
-# ---------------------------------------------------------------------------
-
 EMAIL = (
     r"(?P<email>"
     r"(?P<emailUser>[A-Za-z0-9._%+\-]+)@"
@@ -28,13 +13,11 @@ EMAIL = (
     r")"
 )
 
-# XXXX-XXXX-XXXX-XXXX (รองรับคั่นด้วยช่องว่าง หรือเลข 16 หลักติดกันด้วย)
 CARD = (
     r"(?P<card>(?<!\d)\d{4}(?P<cardSep>[- ]?)\d{4}(?P=cardSep)"
     r"\d{4}(?P=cardSep)\d{4}(?!\d))"
 )
 
-# XXX-XXX-XXXX (รองรับ . หรือช่องว่าง และเบอร์ 10 หลักติดกันที่ขึ้นต้นด้วย 0)
 PHONE = (
     r"(?P<phone>(?<!\d)(?:"
     r"\d{3}(?P<phoneSep>[-. ])\d{3}(?P=phoneSep)\d{4}"
@@ -42,14 +25,12 @@ PHONE = (
     r")(?!\d))"
 )
 
-# DOB:25/12/2549  (ปี พ.ศ. 4 หลัก)
 DOB = (
     r"(?P<dob>(?P<dobLabel>\b(?:DOB|วันเกิด)\s*:\s*)"
     r"(?P<dobDay>\d{1,2})(?P<dobSep>[/.\-])(?P<dobMonth>\d{1,2})(?P=dobSep)"
     r"(?P<dobYear>\d{4})(?!\d))"
 )
 
-# Address: <เลขที่บ้าน> ... เซ็นเซอร์เฉพาะเลขที่บ้าน (รองรับ 12/3, 99-1)
 ADDRESS = (
     r"(?P<address>(?P<addrLabel>\b(?:Address|ที่อยู่)\s*:\s*)"
     r"(?P<addrNo>\d+(?:[/\-]\d+)*))"
@@ -60,12 +41,7 @@ PATTERN = re.compile("|".join([EMAIL, CARD, PHONE, DOB, ADDRESS]), re.IGNORECASE
 KINDS = ["email", "card", "phone", "dob", "address"]
 
 
-# ---------------------------------------------------------------------------
-# Masking functions
-# ---------------------------------------------------------------------------
-
 def maskDigits(text, keep=4):
-    """แทนตัวเลขด้วย X ยกเว้น keep ตัวท้าย (คงเครื่องหมายคั่นไว้)"""
     head, tail = text[:-keep], text[-keep:]
     return re.sub(r"\d", "X", head) + tail
 
@@ -117,7 +93,6 @@ def detectKind(m):
 
 
 def maskText(text):
-    """คืนค่า (ข้อความที่เซ็นเซอร์แล้ว, segments สำหรับไฮไลต์, สถิติ)"""
     segments = []
     stats = {kind: 0 for kind in KINDS}
     pos = 0
@@ -134,10 +109,6 @@ def maskText(text):
     return masked, segments, stats
 
 
-# ---------------------------------------------------------------------------
-# Self test (ตัวอย่างจากโจทย์ + edge cases)
-# ---------------------------------------------------------------------------
-
 def runTests():
     cases = [
         ("1234-5678-9012-3456", "XXXX-XXXX-XXXX-3456"),
@@ -148,7 +119,6 @@ def runTests():
             "Address: 689 ซอยลาดกระบัง 19 ถนนลาดกระบัง แขวงลาดกระบัง เขตลาดกระบัง กรุงเทพฯ",
             "Address: XXX ซอยลาดกระบัง 19 ถนนลาดกระบัง แขวงลาดกระบัง เขตลาดกระบัง กรุงเทพฯ",
         ),
-        # edge cases
         ("ab@x.co", "a*@x.co"),
         ("a@x.co", "*@x.co"),
         ("1234 5678 9012 3456", "XXXX XXXX XXXX 3456"),
@@ -166,10 +136,6 @@ def runTests():
     print("\nall passed" if not failed else "\n%d failed" % failed)
     return failed
 
-
-# ---------------------------------------------------------------------------
-# Web UI
-# ---------------------------------------------------------------------------
 
 HTML_PAGE = r"""<!DOCTYPE html>
 <html lang="th">
@@ -198,18 +164,13 @@ body {
     font-family: "Sarabun", "Noto Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
     line-height: 1.55;
 }
-header { padding: 28px 20px 8px; max-width: 1200px; margin: 0 auto; }
-h1 { margin: 0; font-size: 1.7rem; display: flex; align-items: center; gap: 10px; }
-.sub { color: var(--muted); margin: 4px 0 0; }
-main { max-width: 1200px; margin: 0 auto; padding: 16px 20px 40px; }
-.toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; align-items: center; }
+main { max-width: 1200px; margin: 0 auto; padding: 28px 20px 40px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; align-items: center; justify-content: flex-end; }
 button {
     font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--card);
     color: var(--text); padding: 8px 14px; border-radius: 10px; transition: .15s;
 }
 button:hover { border-color: var(--accent); transform: translateY(-1px); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.spacer { flex: 1; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
 .panel {
@@ -241,70 +202,34 @@ mark.address { background: var(--address); }
 .dot { width: 10px; height: 10px; border-radius: 50%; }
 .chip b { font-size: 1.05rem; }
 .total { background: var(--accentSoft); border-color: transparent; }
-.rules { margin-top: 22px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 6px 16px 12px; }
-.rules h2 { font-size: 1.05rem; }
-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-th { color: var(--muted); font-weight: 600; }
-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem; }
-footer { text-align: center; color: var(--muted); font-size: .85rem; padding-bottom: 28px; }
 </style>
 </head>
 <body>
-<header>
-    <h1>🛡️ PDPA Data Masking</h1>
-    <p class="sub">ระบบเซ็นเซอร์ข้อมูลลูกค้าเพื่อความปลอดภัย &mdash; พิมพ์หรือวาง Log แล้วดูผลลัพธ์ทันที (ประมวลผลด้วย Python <code>re</code>)</p>
-</header>
 <main>
     <div class="toolbar">
-        <button class="primary" id="sampleBtn">📄 โหลด Log ตัวอย่าง</button>
-        <button id="clearBtn">🧹 ล้าง</button>
-        <span class="spacer"></span>
         <label><input type="checkbox" id="hlToggle" checked> ไฮไลต์ส่วนที่ถูกเซ็นเซอร์</label>
         <button id="copyBtn">📋 คัดลอกผลลัพธ์</button>
     </div>
 
     <div class="grid">
         <section class="panel">
-            <div class="panelHead"><span>Input &mdash; ข้อความต้นฉบับ</span><small id="inCount">0 ตัวอักษร</small></div>
+            <div class="panelHead"><span>Input: ข้อความต้นฉบับ</span><small id="inCount">0 ตัวอักษร</small></div>
             <textarea id="input" spellcheck="false" placeholder="พิมพ์หรือวางข้อความที่นี่ เช่น&#10;Card 1234-5678-9012-3456 tel 093-245-7894 somchai.d@company.com"></textarea>
         </section>
         <section class="panel">
-            <div class="panelHead"><span>Output &mdash; ข้อความที่เซ็นเซอร์แล้ว</span><small id="outCount">0 รายการ</small></div>
+            <div class="panelHead"><span>Output: ข้อความที่เซ็นเซอร์แล้ว</span><small id="outCount">0 รายการ</small></div>
             <div class="output" id="output"><span class="placeholder">ผลลัพธ์จะแสดงที่นี่...</span></div>
         </section>
     </div>
 
     <div class="stats" id="stats"></div>
-
-    <section class="rules">
-        <h2>กฎการเซ็นเซอร์</h2>
-        <table>
-            <tr><th>ประเภท</th><th>รูปแบบ</th><th>ตัวอย่างผลลัพธ์</th></tr>
-            <tr><td>💳 บัตรเครดิต</td><td><code>XXXX-XXXX-XXXX-XXXX</code></td><td><code>XXXX-XXXX-XXXX-3456</code></td></tr>
-            <tr><td>✉️ อีเมล</td><td>ซ่อนชื่อผู้ใช้ เหลือตัวแรก/ตัวท้าย</td><td><code>s*******d@company.com</code></td></tr>
-            <tr><td>📞 เบอร์โทร</td><td><code>XXX-XXX-XXXX</code></td><td><code>XXX-XXX-7894</code></td></tr>
-            <tr><td>🎂 วันเกิด</td><td><code>DOB:dd/mm/yyyy</code> (พ.ศ.)</td><td><code>DOB:XX/XX/25XX</code></td></tr>
-            <tr><td>🏠 ที่อยู่</td><td><code>Address:</code> เลขที่บ้านเท่านั้น</td><td><code>Address: XXX ซอยลาดกระบัง ...</code></td></tr>
-        </table>
-    </section>
 </main>
-<footer>Python <code>re</code> เพียงอย่างเดียวในการจับรูปแบบ &middot; ข้อมูลไม่ถูกบันทึกบนเซิร์ฟเวอร์</footer>
 
 <script>
 const LABELS = {
     email: ["อีเมล", "--email"], card: ["บัตรเครดิต", "--card-c"], phone: ["เบอร์โทร", "--phone"],
     dob: ["วันเกิด", "--dob"], address: ["ที่อยู่", "--address"]
 };
-const sampleLog = [
-    "2026-10-13 09:14:02 INFO  [auth] login ok user=somchai.d@company.com",
-    "2026-10-13 09:14:05 DEBUG [payment] card=1234-5678-9012-3456 amount=1,250.00 THB",
-    "2026-10-13 09:15:41 WARN  [profile] update contact tel=093-245-7894 mail=pimchanok_88@bank.co.th",
-    "2026-10-13 09:16:10 INFO  [kyc] customer DOB:25/12/2549 verified",
-    "2026-10-13 09:16:11 INFO  [kyc] Address: 689 ซอยลาดกระบัง 19 ถนนลาดกระบัง แขวงลาดกระบัง เขตลาดกระบัง กรุงเทพฯ",
-    "2026-10-13 09:17:30 ERROR [payment] declined card 4111 1111 1111 1111 contact 0812345678",
-    "2026-10-13 09:18:02 INFO  [batch] processed 12345 records, txn=20261013091802 (ไม่มีข้อมูลส่วนบุคคล)"
-].join("\n");
 
 const input = document.getElementById("input");
 const output = document.getElementById("output");
@@ -361,8 +286,6 @@ async function mask() {
 }
 
 input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(mask, 120); });
-document.getElementById("sampleBtn").onclick = () => { input.value = sampleLog; mask(); };
-document.getElementById("clearBtn").onclick = () => { input.value = ""; mask(); input.focus(); };
 document.getElementById("hlToggle").onchange = (e) => output.classList.toggle("highlightOff", !e.target.checked);
 document.getElementById("copyBtn").onclick = async (e) => {
     await navigator.clipboard.writeText(output.dataset.plain || "");
@@ -413,7 +336,7 @@ class MaskHandler(BaseHTTPRequestHandler):
         self.sendJson(200, {"masked": masked, "segments": segments, "stats": stats})
 
     def log_message(self, fmt, *args):
-        pass  # ไม่บันทึก request เพราะอาจมีข้อมูลส่วนบุคคล
+        pass
 
 
 def main():
@@ -421,11 +344,11 @@ def main():
         sys.exit(1 if runTests() else 0)
     port = int(os.environ.get("PORT", "8000"))
     server = ThreadingHTTPServer(("0.0.0.0", port), MaskHandler)
-    print("PDPA Data Masking running at http://localhost:%d  (Ctrl+C to stop)" % port)
+    print("running at http://localhost:%d" % port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nbye")
+        pass
 
 
 if __name__ == "__main__":
