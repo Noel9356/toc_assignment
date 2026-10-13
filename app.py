@@ -4,7 +4,6 @@ import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MAX_BODY_BYTES = 2_000_000
-
 QUOTE = r"[\"']?"
 
 EMAIL = (
@@ -33,8 +32,8 @@ DOB = (
     r"(?P<dob>(?P<dobLabel>(?<![A-Za-z0-9])(?:DOB|Date\s+of\s+Birth|วันเกิด)"
     + QUOTE + r"\s*[:=]\s*" + QUOTE + r")"
     r"(?:"
-    r"(?P<dayA>\d{1,2})(?P<sepA>[/.\-])(?P<monthA>\d{1,2})(?P=sepA)(?P<yearA>\d{4})"
-    r"|(?P<yearB>\d{4})(?P<sepB>[/.\-])(?P<monthB>\d{1,2})(?P=sepB)(?P<dayB>\d{1,2})"
+    r"(?P<dayA>\d{1,2})(?P<sepA>[/\.\-])(?P<monthA>\d{1,2})(?P=sepA)(?P<yearA>\d{4})"
+    r"|(?P<yearB>\d{4})(?P<sepB>[/\.\-])(?P<monthB>\d{1,2})(?P=sepB)(?P<dayB>\d{1,2})"
     r")(?!\d))"
 )
 
@@ -48,42 +47,43 @@ ADDRESS = (
 PATTERN = re.compile("|".join([EMAIL, CARD, PHONE, DOB, ADDRESS]), re.IGNORECASE)
 
 
-def hide_digits(s, keep=4):
-    return re.sub(r"\d", "X", s[:-keep]) + s[-keep:]
+def hide_digits(value, keep=4):
+    return re.sub(r"\d", "X", value[:-keep]) + value[-keep:]
 
 
-def mask_email(m):
-    user = m.group("emailUser")
-    n = len(user)
-    if n == 1:
-        head = "*"
-    elif n == 2:
-        head = user[0] + "*"
+def mask_email(match):
+    user = match.group("emailUser")
+    if len(user) == 1:
+        masked_user = "*"
+    elif len(user) == 2:
+        masked_user = user[0] + "*"
     else:
-        head = user[0] + "*" * (n - 2) + user[-1]
-    return head + "@" + m.group("emailDomain")
+        masked_user = user[0] + "*" * (len(user) - 2) + user[-1]
+    return masked_user + "@" + match.group("emailDomain")
 
 
-def mask_card(m):
-    return hide_digits(m.group("card"))
+def mask_card(match):
+    return hide_digits(match.group("card"))
 
 
-def mask_phone(m):
-    return hide_digits(m.group("phone"))
+def mask_phone(match):
+    return hide_digits(match.group("phone"))
 
 
-def mask_dob(m):
-    if m.group("yearA") is not None:
-        sep, year = m.group("sepA"), m.group("yearA")
-        date = "XX" + sep + "XX" + sep + year[:2] + "XX"
+def mask_dob(match):
+    if match.group("yearA") is not None:
+        separator = match.group("sepA")
+        year = match.group("yearA")
+        date = "XX" + separator + "XX" + separator + year[:2] + "XX"
     else:
-        sep, year = m.group("sepB"), m.group("yearB")
-        date = year[:2] + "XX" + sep + "XX" + sep + "XX"
-    return m.group("dobLabel") + date
+        separator = match.group("sepB")
+        year = match.group("yearB")
+        date = year[:2] + "XX" + separator + "XX" + separator + "XX"
+    return match.group("dobLabel") + date
 
 
-def mask_address(m):
-    return m.group("addrLabel") + re.sub(r"\d", "X", m.group("addrNo"))
+def mask_address(match):
+    return match.group("addrLabel") + re.sub(r"\d", "X", match.group("addrNo"))
 
 
 MASKERS = {
@@ -97,352 +97,218 @@ MASKERS = {
 
 def mask_text(text):
     segments = []
-    stats = {k: 0 for k in MASKERS}
-    pos = 0
-    for m in PATTERN.finditer(text):
-        if m.start() > pos:
-            segments.append({"text": text[pos:m.start()], "kind": None})
-        kind = m.lastgroup
-        segments.append({"text": MASKERS[kind](m), "orig": m.group(0), "kind": kind})
+    stats = {kind: 0 for kind in MASKERS}
+    position = 0
+
+    for match in PATTERN.finditer(text):
+        if match.start() > position:
+            segments.append({"text": text[position:match.start()], "kind": None})
+
+        kind = match.lastgroup
+        segments.append({
+            "text": MASKERS[kind](match),
+            "orig": match.group(0),
+            "kind": kind,
+        })
         stats[kind] += 1
-        pos = m.end()
-    if pos < len(text):
-        segments.append({"text": text[pos:], "kind": None})
-    masked = "".join(s["text"] for s in segments)
+        position = match.end()
+
+    if position < len(text):
+        segments.append({"text": text[position:], "kind": None})
+
+    masked = "".join(segment["text"] for segment in segments)
     return masked, segments, stats
 
 
 HTML_PAGE = r"""<!DOCTYPE html>
-<html lang="th" data-theme="aurora" data-mode="highlight">
+<html lang="th" data-theme="light" data-mode="highlight">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PDPA Data Masking</title>
 <style>
-/* ============ THEME TOKENS ============ */
-html[data-theme="aurora"]{
-  --bg:#070a18; --text:#f3f5ff; --muted:#b6bfe6;
-  --panel:rgba(255,255,255,.065); --line:rgba(255,255,255,.18);
-  --accent:#8b7bff; --accentText:#fff; --a1:#8b7bff; --a2:#ff6b9d;
-  --track:rgba(255,255,255,.10); --redact:#04060d; --redactText:#e9edff;
-  --radius:22px; --shadow:0 24px 60px -18px rgba(0,0,0,.75); --blur:blur(20px);
-  --font:"Sarabun","Noto Sans Thai",system-ui,-apple-system,"Segoe UI",sans-serif;
-  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,"Noto Sans Thai",monospace;
-  --cEmail:#ffbe72; --cCard:#ff8ab8; --cPhone:#6fd3ff; --cDob:#c3adff; --cAddress:#8ae89b;
+:root {
+  color-scheme: light;
+  --bg: #f4f6f8;
+  --panel: #fff;
+  --text: #252b33;
+  --muted: #687482;
+  --line: #dce2e8;
+  --accent: #2563a6;
+  --accent-soft: #e8f1fb;
+  --warning: #8b4b08;
+  --warning-bg: #fff4df;
+  --email: #a85d08;
+  --card: #b23c57;
+  --phone: #176c9d;
+  --dob: #7252a5;
+  --address: #28754c;
+  --radius: 10px;
+  --font: "Sarabun", "Noto Sans Thai", system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Consolas, "Noto Sans Thai", monospace;
 }
-html[data-theme="terminal"]{
-  --bg:#020a05; --text:#a5ffc8; --muted:#68eda3;
-  --panel:rgba(0,25,10,.75); --line:#31a862;
-  --accent:#39ff88; --accentText:#020a05; --a1:#39ff88; --a2:#0affc0;
-  --track:#06210f; --redact:#39ff88; --redactText:#020a05;
-  --radius:6px; --shadow:0 0 30px rgba(57,255,136,.16); --blur:none;
-  --font:ui-monospace,Menlo,Consolas,"Noto Sans Thai",monospace;
-  --mono:ui-monospace,Menlo,Consolas,"Noto Sans Thai",monospace;
-  --cEmail:#ffd43b; --cCard:#ff8686; --cPhone:#69dcff; --cDob:#e59cff; --cAddress:#b2ff8a;
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #171b20;
+  --panel: #20262d;
+  --text: #e6ebf0;
+  --muted: #a3afbb;
+  --line: #3b454f;
+  --accent: #82b7f0;
+  --accent-soft: #263b50;
+  --warning: #ffd18a;
+  --warning-bg: #3c2d1b;
+  --email: #f0b66e;
+  --card: #ff9cad;
+  --phone: #80c9f0;
+  --dob: #c0a1f4;
+  --address: #91d6a8;
 }
-html[data-theme="paper"]{
-  --bg:#efe9db; --text:#141414; --muted:#544d3f;
-  --panel:#fbf8f0; --line:#c3b89e;
-  --accent:#b3261e; --accentText:#fff; --a1:#b3261e; --a2:#e0653f;
-  --track:#e2dac6; --redact:#111; --redactText:#fbf8f0;
-  --radius:8px; --shadow:6px 6px 0 rgba(0,0,0,.13); --blur:none;
-  --font:"Sarabun","Noto Sans Thai",Georgia,serif;
-  --mono:"Courier New",Courier,"Noto Sans Thai",monospace;
-  --cEmail:#b83f0a; --cCard:#b01038; --cPhone:#1a44c0; --cDob:#5f22c4; --cAddress:#116b32;
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font: 15px/1.55 var(--font); }
+button, textarea { font: inherit; }
+button { cursor: pointer; }
+button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { cursor: not-allowed; opacity: .48; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 15px max(20px, calc((100% - 1180px) / 2)); background: var(--panel); border-bottom: 1px solid var(--line); }
+.brand { min-width: 0; }
+.brand h1 { margin: 0; font-size: 1.1rem; font-weight: 700; }
+.brand p { margin: 2px 0 0; color: var(--muted); font-size: .86rem; }
+.top-actions { display: flex; align-items: center; gap: 8px; }
+.button { min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); font-size: .9rem; }
+.button:hover:not(:disabled) { border-color: var(--accent); }
+.button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+html[data-theme="dark"] .button.primary { color: #171b20; }
+main { width: min(1180px, calc(100% - 40px)); margin: 24px auto 40px; }
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.filters-title { margin-right: 4px; color: var(--muted); font-size: .9rem; }
+.filter { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); font-size: .88rem; }
+.filter[aria-pressed="false"] { color: var(--muted); background: transparent; border-style: dashed; }
+.filter .dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--kind-color); }
+.filter .count { color: var(--muted); font: .8rem var(--mono); }
+[data-k="email"] { --kind-color: var(--email); }
+[data-k="card"] { --kind-color: var(--card); }
+[data-k="phone"] { --kind-color: var(--phone); }
+[data-k="dob"] { --kind-color: var(--dob); }
+[data-k="address"] { --kind-color: var(--address); }
+#allBtn { color: var(--accent); }
+.filter-warning { margin: 0 0 14px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--line)); border-radius: 7px; background: var(--warning-bg); color: var(--warning); font-size: .88rem; }
+.filter-warning[hidden] { display: none; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.panel { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.panel-head, .panel-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; }
+.panel-head { border-bottom: 1px solid var(--line); font-weight: 650; }
+.panel-foot { border-top: 1px solid var(--line); }
+.meta { margin-left: auto; color: var(--muted); font-size: .82rem; font-weight: 400; }
+.status { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: .82rem; font-weight: 400; }
+.status::before { width: 7px; height: 7px; flex: none; border-radius: 50%; background: #479467; content: ""; }
+#outPanel.busy .status { color: var(--accent); }
+#outPanel.busy .status::before { background: var(--accent); animation: pulse .9s ease-in-out infinite alternate; }
+@keyframes pulse { to { opacity: .3; } }
+.editor { position: relative; height: 390px; overflow: hidden; }
+textarea, .backdrop { width: 100%; margin: 0; padding: 15px 16px; border: 0; font: 13.5px/1.75 var(--mono); letter-spacing: normal; tab-size: 4; white-space: pre-wrap; overflow-wrap: anywhere; }
+textarea { position: absolute; inset: 0; height: 100%; z-index: 1; resize: none; overflow: auto; background: transparent; color: var(--text); caret-color: var(--accent); scrollbar-gutter: stable; }
+textarea::placeholder { color: var(--muted); opacity: 1; }
+.backdrop { position: absolute; top: 0; left: 0; padding-right: calc(16px + var(--sbw, 0px)); color: transparent; pointer-events: none; }
+.backdrop mark, .tx mark { border-radius: 3px; background: color-mix(in srgb, var(--kind-color) 20%, transparent); box-shadow: inset 0 -2px 0 var(--kind-color); }
+.backdrop mark.unmasked, .tx mark.unmasked { background: color-mix(in srgb, #f59e0b 20%, transparent); box-shadow: inset 0 -2px 0 #d97706; }
+.output { height: 390px; overflow: auto; padding: 12px 0; font: 13.5px/1.75 var(--mono); }
+.line { display: flex; padding-right: 14px; }
+.line-number { width: 42px; flex: none; padding-right: 12px; color: var(--muted); text-align: right; user-select: none; font-size: .82em; }
+.line.hit { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.line.hit .line-number { color: var(--accent); }
+.tx { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tx:empty::after { content: "\200b"; }
+.tx mark { color: inherit; padding: 1px 3px; }
+.tx mark.unmasked { text-decoration: underline; text-decoration-style: wavy; text-decoration-color: #d97706; text-underline-offset: 3px; }
+html[data-mode="plain"] .tx mark:not(.unmasked) { background: transparent; box-shadow: none; padding: 0; }
+html[data-mode="redact"] .tx mark:not(.unmasked) { background: #252a31; box-shadow: none; color: transparent; }
+html[data-mode="redact"] .tx mark:not(.unmasked):hover { color: #fff; }
+.empty { display: grid; min-height: 100%; place-content: center; gap: 5px; padding: 20px; text-align: center; }
+.empty strong { font-weight: 600; }
+.empty span { color: var(--muted); font-size: .88rem; }
+.mode-switch { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 7px; }
+.mode-switch button { min-height: 32px; padding: 5px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: .82rem; }
+.mode-switch button.active { background: var(--accent-soft); color: var(--text); }
+.mode-switch button:focus-visible { outline: 2px solid var(--accent); }
+.hint { margin-left: auto; color: var(--muted); font-size: .82rem; }
+.summary { display: flex; align-items: center; gap: 12px; margin-top: 15px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.summary-number { min-width: 38px; font: 700 1.5rem/1 var(--mono); color: var(--accent); }
+.summary-text { font-size: .92rem; }
+.summary-text small { display: block; margin-top: 2px; color: var(--muted); font-size: .82rem; }
+.privacy-note { margin: 10px 2px 0; color: var(--muted); font-size: .83rem; }
+.toast { position: fixed; bottom: 20px; left: 50%; z-index: 5; max-width: calc(100% - 32px); padding: 9px 14px; border-radius: 7px; background: var(--text); color: var(--bg); opacity: 0; pointer-events: none; transform: translate(-50%, 8px); transition: opacity .15s, transform .15s; font-size: .9rem; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.panel.drag { outline: 2px dashed var(--accent); outline-offset: -5px; }
+.file-input { display: none; }
+@media (max-width: 800px) { .grid { grid-template-columns: 1fr; } .editor, .output { height: 320px; } }
+@media (max-width: 520px) {
+  .topbar { align-items: flex-start; padding: 13px 16px; }
+  .brand p { max-width: 220px; }
+  main { width: calc(100% - 24px); margin-top: 16px; }
+  .panel-head, .panel-foot { padding: 10px; }
+  .hint { width: 100%; margin-left: 0; }
+  .summary { align-items: flex-start; }
+  .meta { font-size: .78rem; }
 }
-
-/* ============ BASE ============ */
-*,*::before,*::after{box-sizing:border-box}
-body{
-  margin:0;min-height:100vh;background:var(--bg);color:var(--text);
-  font-family:var(--font);font-size:15px;line-height:1.6;
-  transition:background .5s ease,color .3s ease;-webkit-font-smoothing:antialiased;
-}
-button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
-::selection{background:color-mix(in srgb,var(--accent) 35%,transparent)}
-
-/* ============ ANIMATED BACKGROUND ============ */
-.bg{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
-.blob{position:absolute;width:52vmax;height:52vmax;border-radius:50%;filter:blur(90px);opacity:.5}
-.blob.b1{background:radial-gradient(circle,#8b7bff,transparent 65%);top:-18vmax;left:-12vmax;animation:d1 22s ease-in-out infinite alternate}
-.blob.b2{background:radial-gradient(circle,#ff6b9d,transparent 65%);top:-10vmax;right:-16vmax;animation:d2 26s ease-in-out infinite alternate}
-.blob.b3{background:radial-gradient(circle,#4dc3ff,transparent 65%);bottom:-24vmax;left:20vmax;animation:d3 30s ease-in-out infinite alternate}
-@keyframes d1{to{transform:translate(10vmax,8vmax) scale(1.15)}}
-@keyframes d2{to{transform:translate(-8vmax,10vmax) scale(1.1)}}
-@keyframes d3{to{transform:translate(6vmax,-8vmax) scale(1.2)}}
-html[data-theme="terminal"] .bg{display:none}
-html[data-theme="paper"] .blob{opacity:.22;filter:blur(70px)}
-html[data-theme="terminal"] body::after{
-  content:"";position:fixed;inset:0;pointer-events:none;z-index:60;
-  background:repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px);
-}
-html[data-theme="paper"] body{
-  background-image:linear-gradient(rgba(0,0,0,.045) 1px,transparent 1px);
-  background-size:100% 30px;
-}
-
-/* ============ NAV ============ */
-.nav{
-  position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-  justify-content:space-between;
-  padding:12px clamp(14px,3.5vw,36px);border-bottom:1px solid var(--line);
-  background:color-mix(in srgb,var(--bg) 82%,transparent);
-  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-}
-.seg{display:inline-flex;gap:3px;padding:4px;border:1px solid var(--line);border-radius:15px;background:var(--panel)}
-.seg button{font-size:.85rem;color:var(--muted);padding:7px 15px;border-radius:11px;transition:.2s;font-weight:500}
-.seg button:hover{color:var(--text)}
-.seg button.active{background:var(--accent);color:var(--accentText);font-weight:700;box-shadow:0 6px 16px -8px var(--accent)}
-
-.themes{display:flex;gap:8px}
-.swatch{width:32px;height:32px;padding:0;border-radius:50%;border:2px solid var(--line);transition:.2s}
-.swatch:hover{transform:scale(1.12)}
-.swatch.active{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 32%,transparent)}
-.swatch[data-theme="aurora"]{background:linear-gradient(135deg,#8b7bff,#ff6b9d)}
-.swatch[data-theme="terminal"]{background:#04120a;border-color:#39ff88}
-.swatch[data-theme="paper"]{background:#efe9db;border-color:#b3261e}
-
-/* ============ LAYOUT ============ */
-main{max-width:1320px;margin:0 auto;padding:clamp(16px,2.6vw,30px) clamp(14px,3.5vw,36px) 64px}
-
-.filters{display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-bottom:16px}
-.filtersLabel{font-size:.84rem;color:var(--muted);margin-right:2px;font-weight:600}
-.filter{
-  display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;
-  font-size:.86rem;font-weight:500;border:1px solid var(--line);background:var(--panel);
-  color:var(--text);transition:.2s;user-select:none;
-}
-.filter:hover{transform:translateY(-2px);border-color:var(--accent)}
-.filter .dot{width:9px;height:9px;border-radius:50%;background:var(--k);box-shadow:0 0 9px var(--k);flex:none}
-.filter b{
-  font-family:var(--mono);font-size:.74rem;font-weight:700;min-width:22px;text-align:center;
-  padding:1px 7px;border-radius:999px;
-  background:color-mix(in srgb,var(--k) 30%,transparent);color:var(--text);
-}
-.filter[aria-pressed="false"]{
-  border-style:dashed;background:transparent;color:var(--muted);
-}
-.filter[aria-pressed="false"] .dot{background:var(--muted);box-shadow:none;opacity:.7}
-.filter[aria-pressed="false"] b{background:transparent;color:var(--muted)}
-
-#allBtn{--k:var(--accent);font-weight:600}
-[data-k="email"]{--k:var(--cEmail)}
-[data-k="card"]{--k:var(--cCard)}
-[data-k="phone"]{--k:var(--cPhone)}
-[data-k="dob"]{--k:var(--cDob)}
-[data-k="address"]{--k:var(--cAddress)}
-
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-@media(max-width:900px){.grid{grid-template-columns:1fr}}
-
-.panel{
-  position:relative;display:flex;flex-direction:column;overflow:hidden;
-  border:1px solid var(--line);border-radius:var(--radius);
-  background:var(--panel);box-shadow:var(--shadow);
-  backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
-  transition:border-color .25s,box-shadow .25s;
-}
-.panel.drag{border-color:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 24%,transparent),var(--shadow)}
-
-.pHead{display:flex;align-items:center;gap:10px;padding:13px 17px;border-bottom:1px solid var(--line);font-size:.92rem;font-weight:600}
-.pHead .meta{margin-left:auto;font-family:var(--mono);font-size:.78rem;font-weight:500;color:var(--muted)}
-.led{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent);animation:pulse 2s ease-in-out infinite;flex:none}
-html[data-theme="terminal"] .led{border-radius:0;animation:blink 1.1s steps(2) infinite}
-html[data-theme="paper"] .led{box-shadow:none;animation:none}
-@keyframes pulse{50%{opacity:.3}}
-@keyframes blink{50%{opacity:0}}
-
-.pulse{position:absolute;top:0;left:0;right:0;height:2px;overflow:hidden;opacity:0;transition:opacity .2s}
-.pulse::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,var(--accent),transparent)}
-.panel.busy .pulse{opacity:1}
-.panel.busy .pulse::after{animation:sweep 1.1s linear infinite}
-@keyframes sweep{to{transform:translateX(100%)}}
-
-/* ============ EDITOR / OUTPUT ============ */
-.editor{position:relative;height:clamp(300px,44vh,440px);overflow:hidden}
-textarea,.backdrop{
-  font:14.5px/1.75 var(--mono);padding:18px 20px;margin:0;border:0;tab-size:4;
-  white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;letter-spacing:normal;
-}
-textarea{
-  position:absolute;inset:0;width:100%;height:100%;z-index:1;resize:none;overflow:auto;outline:0;
-  background:transparent;color:var(--text);caret-color:var(--accent);
-  scrollbar-gutter:stable;
-}
-textarea::placeholder{color:var(--muted);opacity:1}
-/* backdrop is full-height and NOT clipped; the .editor clips it.
-   padding-right compensates for the textarea's scrollbar so wrapping matches. */
-.backdrop{
-  position:absolute;top:0;left:0;width:100%;
-  padding-right:calc(20px + var(--sbw,0px));
-  color:transparent;pointer-events:none;will-change:transform;
-}
-.backdrop mark{
-  color:transparent;border-radius:4px;padding:0;
-  background:color-mix(in srgb,var(--k) 34%,transparent);box-shadow:inset 0 -2px 0 var(--k);
-}
-
-.output{
-  height:clamp(300px,44vh,440px);overflow:auto;padding:14px 0;counter-reset:ln;
-  font:14.5px/1.75 var(--mono);
-}
-.ln{display:flex;counter-increment:ln;padding-right:18px}
-.ln::before{
-  content:counter(ln);flex:none;width:3.1em;padding-right:14px;text-align:right;
-  color:var(--muted);user-select:none;font-size:.85em;
-}
-.ln.hit{background:color-mix(in srgb,var(--accent) 10%,transparent);box-shadow:inset 3px 0 0 var(--accent)}
-.ln.hit::before{color:var(--accent);font-weight:700}
-.tx{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:break-word}
-.tx:empty::after{content:"\200b"}
-
-.output mark{
-  position:relative;color:inherit;font-weight:700;padding:1px 5px;border-radius:6px;cursor:help;
-  background:color-mix(in srgb,var(--k) 28%,transparent);box-shadow:inset 0 -2px 0 var(--k);
-  animation:pop .3s ease both;
-}
-@keyframes pop{from{opacity:.35}}
-.output mark::after{
-  content:attr(data-label);position:absolute;left:50%;bottom:100%;transform:translate(-50%,-6px);
-  background:var(--text);color:var(--bg);font:700 11.5px/1 var(--font);padding:6px 10px;
-  border-radius:7px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .16s;z-index:6;
-}
-.output mark:hover::after{opacity:1}
-html[data-mode="plain"] .output mark{background:none;box-shadow:none;padding:0;font-weight:inherit}
-html[data-mode="redact"] .output mark{background:var(--redact);color:transparent;box-shadow:none;border-radius:3px}
-html[data-mode="redact"] .output mark:hover{color:var(--redactText)}
-
-.empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:20px;text-align:center}
-.empty .ico{font-size:36px;opacity:.75;margin-bottom:6px}
-.empty p{margin:0;font-size:.95rem;color:var(--text);font-family:var(--font);font-weight:600}
-.empty span{font-size:.82rem;color:var(--muted)}
-
-.output::-webkit-scrollbar,textarea::-webkit-scrollbar{width:10px;height:10px}
-.output::-webkit-scrollbar-track,textarea::-webkit-scrollbar-track{background:transparent}
-.output::-webkit-scrollbar-thumb,textarea::-webkit-scrollbar-thumb{
-  background:var(--line);border-radius:999px;border:3px solid transparent;background-clip:padding-box;
-}
-.output::-webkit-scrollbar-thumb:hover,textarea::-webkit-scrollbar-thumb:hover{background:var(--muted);background-clip:padding-box}
-.output,textarea{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
-
-/* ============ FOOTER / BUTTONS ============ */
-.pFoot{display:flex;align-items:center;gap:9px;padding:11px 15px;border-top:1px solid var(--line);flex-wrap:wrap}
-.pFoot .hint{margin-left:auto;font-size:.82rem;color:var(--muted);font-family:var(--mono)}
-.btn{
-  display:inline-flex;align-items:center;gap:7px;font-size:.86rem;font-weight:600;
-  padding:8px 15px;border-radius:12px;border:1px solid var(--line);background:var(--panel);
-  color:var(--text);transition:.2s;
-}
-.btn:hover{transform:translateY(-2px);border-color:var(--accent)}
-.btn:active{transform:translateY(0)}
-.btn[aria-pressed="false"]{border-style:dashed;color:var(--muted)}
-.btn.primary{
-  border-color:transparent;color:#fff;background:linear-gradient(135deg,var(--a1),var(--a2));
-  box-shadow:0 10px 24px -14px var(--a1);
-}
-html[data-theme="terminal"] .btn.primary{color:var(--accentText);border-radius:4px}
-html[data-theme="paper"] .btn.primary{border-radius:4px;box-shadow:3px 3px 0 rgba(0,0,0,.2)}
-
-/* ============ DASHBOARD ============ */
-.dash{
-  margin-top:18px;display:flex;gap:24px;align-items:center;flex-wrap:wrap;
-  padding:18px 22px;border:1px solid var(--line);border-radius:var(--radius);
-  background:var(--panel);box-shadow:var(--shadow);
-  backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
-}
-.dashNum{display:flex;flex-direction:column;align-items:center;min-width:112px}
-.dashNum strong{
-  font-size:2.5rem;line-height:1;font-family:var(--mono);font-weight:700;
-  background:linear-gradient(135deg,var(--a1),var(--a2));
-  -webkit-background-clip:text;background-clip:text;color:transparent;
-}
-html[data-theme="terminal"] .dashNum strong{background:none;color:var(--accent)}
-.dashNum span{font-size:.78rem;color:var(--muted);margin-top:6px;text-align:center;line-height:1.3;font-weight:600}
-.dashBody{flex:1;min-width:220px}
-.summary{margin:0 0 10px;font-size:.94rem;font-weight:600;color:var(--text)}
-.bar{display:flex;height:10px;border-radius:999px;overflow:hidden;background:var(--track)}
-.bar i{display:block;height:100%;width:0;background:var(--k);transition:width .5s cubic-bezier(.2,.8,.2,1)}
-
-/* ============ TOAST ============ */
-.toast{
-  position:fixed;left:50%;bottom:26px;transform:translate(-50%,16px);
-  background:var(--text);color:var(--bg);padding:10px 20px;border-radius:999px;
-  font-size:.88rem;font-weight:700;opacity:0;pointer-events:none;transition:.28s;z-index:70;
-  box-shadow:0 14px 34px -14px rgba(0,0,0,.7);
-}
-.toast.show{opacity:1;transform:translate(-50%,0)}
-
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
-<div class="bg" aria-hidden="true">
-  <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
-</div>
-
-<nav class="nav">
-  <div class="seg" id="modeSeg" role="group" aria-label="โหมดแสดงผล">
-    <button type="button" data-mode="highlight" class="active">ไฮไลต์</button>
-    <button type="button" data-mode="redact">แถบดำ</button>
-    <button type="button" data-mode="plain">ปกติ</button>
+<header class="topbar">
+  <div class="brand">
+    <h1>PDPA Data Masking</h1>
+    <p>ค้นหาและปกปิดข้อมูลส่วนบุคคลในข้อความ</p>
   </div>
-  <div class="themes" id="themes" role="group" aria-label="ธีมสี">
-    <button type="button" class="swatch" data-theme="aurora" title="Aurora" aria-label="ธีม Aurora"></button>
-    <button type="button" class="swatch" data-theme="terminal" title="Terminal" aria-label="ธีม Terminal"></button>
-    <button type="button" class="swatch" data-theme="paper" title="Paper" aria-label="ธีม Paper"></button>
+  <div class="top-actions">
+    <button class="button" id="themeBtn" type="button" aria-pressed="false">โหมดมืด</button>
   </div>
-</nav>
-
+</header>
 <main>
-  <div class="filters" id="filters"><span class="filtersLabel">ตรวจสอบ:</span></div>
-
+  <div class="filters" id="filters"><span class="filters-title">ประเภทข้อมูลที่ต้องการปกปิด</span></div>
+  <p class="filter-warning" id="filterWarning" role="alert" hidden></p>
   <div class="grid">
     <section class="panel" id="inPanel">
-      <div class="pHead"><span class="led"></span><span>ข้อความต้นฉบับ</span><span class="meta" id="inMeta">0 ตัวอักษร</span></div>
-      <div class="pulse"></div>
+      <div class="panel-head"><span>ข้อความต้นฉบับ</span><span class="meta" id="inMeta">0 ตัวอักษร</span></div>
       <div class="editor">
         <div class="backdrop" id="backdrop" aria-hidden="true"></div>
-        <textarea id="input" spellcheck="false" autofocus aria-label="ข้อความต้นฉบับ"
-          placeholder="พิมพ์ หรือวางข้อความที่นี่…&#10;&#10;ตัวอย่าง:&#10;โทร 081-234-5678&#10;อีเมล somchai.j@company.co.th&#10;บัตรเครดิต 4539 8712 0045 1123"></textarea>
+        <textarea id="input" spellcheck="false" autofocus aria-label="ข้อความต้นฉบับ" placeholder="พิมพ์หรือวางข้อความที่นี่…&#10;&#10;ตัวอย่าง:&#10;โทร 081-234-5678&#10;อีเมล somchai@example.com&#10;บัตรเครดิต 4111 1111 1111 1111"></textarea>
       </div>
-      <div class="pFoot">
-        <button class="btn" id="clearBtn" type="button">🧹 ล้าง</button>
-        <button class="btn" id="hlBtn" type="button" aria-pressed="true" title="เปิด/ปิดไฮไลต์ตัวอย่างในช่องข้อความต้นฉบับ">🔆 ไฮไลต์ตัวอย่าง</button>
-        <span class="hint">ลากไฟล์ .txt / .log มาวางได้</span>
+      <div class="panel-foot">
+        <button class="button" id="clearBtn" type="button">ล้างข้อความ</button>
+        <button class="button" id="exampleBtn" type="button">ใส่ตัวอย่าง</button>
+        <button class="button" id="fileBtn" type="button">เลือกไฟล์ .txt/.log</button>
+        <input class="file-input" id="fileInput" type="file" accept=".txt,.log,text/plain" tabindex="-1" aria-label="เลือกไฟล์ข้อความ">
+        <button class="button" id="hlBtn" type="button" aria-pressed="true">ไฮไลต์ข้อมูลที่พบ</button>
+        <span class="hint">ลากไฟล์มาวางได้ · Ctrl+Enter ตรวจทันที</span>
       </div>
     </section>
-
     <section class="panel" id="outPanel">
-      <div class="pHead"><span class="led"></span><span>ข้อความที่ปกป้องแล้ว</span><span class="meta" id="outMeta">0 รายการ</span></div>
-      <div class="pulse"></div>
+      <div class="panel-head"><span>ผลลัพธ์</span><span class="status" id="statusText" role="status" aria-live="polite">รอรับข้อความ</span><span class="meta" id="outMeta">0 รายการ</span></div>
       <div class="output" id="output"></div>
-      <div class="pFoot">
-        <button class="btn primary" id="copyBtn" type="button">📋 คัดลอกผลลัพธ์</button>
-        <button class="btn" id="saveBtn" type="button">⬇️ ดาวน์โหลด</button>
-        <span class="hint">Ctrl+Shift+C</span>
+      <div class="panel-foot">
+        <div class="mode-switch" id="modeSeg" role="group" aria-label="รูปแบบการแสดงผล">
+          <button type="button" data-mode="highlight" class="active" aria-pressed="true">ไฮไลต์</button>
+          <button type="button" data-mode="redact" aria-pressed="false">แถบดำ</button>
+          <button type="button" data-mode="plain" aria-pressed="false">ปกติ</button>
+        </div>
+        <button class="button primary" id="copyBtn" type="button" disabled>คัดลอกผลลัพธ์</button>
+        <button class="button" id="saveBtn" type="button" disabled>ดาวน์โหลด</button>
       </div>
     </section>
   </div>
-
-  <section class="dash">
-    <div class="dashNum">
-      <strong id="totalNum">0</strong>
-      <span>รายการ<br>ถูกปกป้อง</span>
-    </div>
-    <div class="dashBody">
-      <p class="summary" id="summary" aria-live="polite">พิมพ์หรือวางข้อความเพื่อเริ่มตรวจสอบ</p>
-      <div class="bar" id="bar"></div>
-    </div>
+  <section class="summary">
+    <div class="summary-number" id="totalNum">0</div>
+    <div class="summary-text"><span id="summaryText">พิมพ์หรือวางข้อความเพื่อเริ่มตรวจสอบ</span><small id="summaryDetail">จำนวนข้อมูลที่ตรวจพบในทุกประเภท</small></div>
   </section>
+  <p class="privacy-note">การตรวจจับอาศัยรูปแบบข้อมูลที่กำหนดไว้ จึงอาจพลาดข้อมูลส่วนบุคคลบางรูปแบบ ควรตรวจผลลัพธ์ก่อนนำไปเผยแพร่</p>
 </main>
-
-<div class="toast" id="toast" role="status"></div>
-
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 const KINDS = ["email", "card", "phone", "dob", "address"];
-const LABELS = { email: "อีเมล", card: "บัตรเครดิต", phone: "เบอร์โทร", dob: "วันเกิด", address: "ที่อยู่" };
+const LABELS = { email: "อีเมล", card: "บัตรเครดิต", phone: "เบอร์โทรศัพท์", dob: "วันเกิด", address: "ที่อยู่" };
 const ZERO = { email: 0, card: 0, phone: 0, dob: 0, address: 0 };
-
+const MAX_BODY_BYTES = 2000000;
 const root = document.documentElement;
 const input = document.getElementById("input");
 const backdrop = document.getElementById("backdrop");
@@ -452,152 +318,212 @@ const inPanel = document.getElementById("inPanel");
 const outPanel = document.getElementById("outPanel");
 const inMeta = document.getElementById("inMeta");
 const outMeta = document.getElementById("outMeta");
-const summary = document.getElementById("summary");
+const statusText = document.getElementById("statusText");
+const summaryText = document.getElementById("summaryText");
+const summaryDetail = document.getElementById("summaryDetail");
 const totalNum = document.getElementById("totalNum");
 const toastEl = document.getElementById("toast");
-const barBox = document.getElementById("bar");
 const filtersBox = document.getElementById("filters");
+const filterWarning = document.getElementById("filterWarning");
 const hlBtn = document.getElementById("hlBtn");
+const themeBtn = document.getElementById("themeBtn");
+const copyBtn = document.getElementById("copyBtn");
+const saveBtn = document.getElementById("saveBtn");
+const fileInput = document.getElementById("fileInput");
 
 let enabled = new Set(KINDS);
 let showBackdrop = read("backdrop") !== "off";
-let timer = null, seq = 0, ctrl = null, plain = "", toastT = null, shownTotal = 0;
-let lastData = null, lastText = "";
+let timer = null;
+let sequence = 0;
+let controller = null;
+let plain = "";
+let toastTimer = null;
+let lastData = null;
+let lastText = "";
+let resultReady = false;
 
-/* ---------- storage ---------- */
-function save(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
-function read(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function save(key, value) {
+  try { localStorage.setItem(key, value); } catch (_) {}
+}
+
+function read(key) {
+  try { return localStorage.getItem(key); } catch (_) { return null; }
+}
+
 try {
-  const raw = JSON.parse(read("kinds") || "null");
-  if (Array.isArray(raw)) {
-    const kept = raw.filter(k => KINDS.includes(k));
-    if (kept.length) enabled = new Set(kept);
+  const savedKinds = JSON.parse(read("kinds") || "null");
+  if (Array.isArray(savedKinds)) {
+    const validKinds = savedKinds.filter(kind => KINDS.includes(kind));
+    if (validKinds.length) enabled = new Set(validKinds);
   }
-} catch (e) {}
+} catch (_) {}
 
-/* ---------- ui helpers ---------- */
-function el(tag, cls) { const n = document.createElement(tag); if (cls) n.className = cls; return n; }
-function toast(msg) {
-  toastEl.textContent = msg;
+function el(tag, className) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  return node;
+}
+
+function toast(message) {
+  toastEl.textContent = message;
   toastEl.classList.add("show");
-  clearTimeout(toastT);
-  toastT = setTimeout(() => toastEl.classList.remove("show"), 1700);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2000);
 }
 
-/* ---------- theme / mode ---------- */
-function applyTheme(name) {
-  root.dataset.theme = name;
-  document.querySelectorAll("#themes button").forEach(b => b.classList.toggle("active", b.dataset.theme === name));
-  save("theme", name);
-}
-function applyMode(name) {
-  root.dataset.mode = name;
-  document.querySelectorAll("#modeSeg button").forEach(b => b.classList.toggle("active", b.dataset.mode === name));
-  save("mode", name);
+function applyTheme(theme) {
+  const value = theme === "dark" ? "dark" : "light";
+  root.dataset.theme = value;
+  themeBtn.textContent = value === "dark" ? "โหมดสว่าง" : "โหมดมืด";
+  themeBtn.setAttribute("aria-pressed", String(value === "dark"));
+  save("theme", value);
 }
 
-/* ---------- scrollbar width compensation ---------- */
-/* The textarea reserves a scrollbar gutter; the backdrop must match its
-   content width so that text wraps at exactly the same points. */
-function syncSbw() {
-  const w = input.offsetWidth - input.clientWidth;
-  editor.style.setProperty("--sbw", (w > 0 ? w : 0) + "px");
+function applyMode(mode) {
+  const value = ["highlight", "redact", "plain"].includes(mode) ? mode : "highlight";
+  root.dataset.mode = value;
+  document.querySelectorAll("#modeSeg button").forEach(button => {
+    const active = button.dataset.mode === value;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  save("mode", value);
 }
-window.addEventListener("resize", () => { syncSbw(); syncScroll(); });
 
-/* ---------- scroll sync ---------- */
+function syncScrollbarWidth() {
+  const width = input.offsetWidth - input.clientWidth;
+  editor.style.setProperty("--sbw", Math.max(0, width) + "px");
+}
+
 function syncScroll() {
   backdrop.style.transform = "translateY(" + (-input.scrollTop) + "px)";
 }
+
+window.addEventListener("resize", () => {
+  syncScrollbarWidth();
+  syncScroll();
+});
 input.addEventListener("scroll", syncScroll);
 
-/* ---------- filter chips + meter bars ---------- */
-const filterEls = {}, countEls = {}, bars = {};
+const filterButtons = {};
+const countElements = {};
 
-KINDS.forEach(k => {
-  const b = el("button", "filter");
-  b.type = "button";
-  b.dataset.k = k;
-  b.setAttribute("aria-pressed", "true");
+KINDS.forEach(kind => {
+  const button = el("button", "filter");
+  button.type = "button";
+  button.dataset.k = kind;
+  button.setAttribute("aria-pressed", "true");
   const dot = el("span", "dot");
-  const name = el("span"); name.textContent = LABELS[k];
-  const num = el("b"); num.textContent = "0";
-  b.append(dot, name, num);
-  b.addEventListener("click", () => {
-    if (enabled.has(k)) enabled.delete(k); else enabled.add(k);
+  const label = el("span");
+  label.textContent = LABELS[kind];
+  const count = el("span", "count");
+  count.textContent = "0";
+  button.append(dot, label, count);
+  button.addEventListener("click", () => {
+    if (enabled.has(kind)) enabled.delete(kind);
+    else enabled.add(kind);
     save("kinds", JSON.stringify([...enabled]));
     syncFilters();
     refresh();
   });
-  filtersBox.appendChild(b);
-  filterEls[k] = b; countEls[k] = num;
-
-  const seg = el("i"); seg.dataset.k = k; barBox.appendChild(seg); bars[k] = seg;
+  filtersBox.appendChild(button);
+  filterButtons[kind] = button;
+  countElements[kind] = count;
 });
 
-const allBtn = el("button", "filter");
-allBtn.type = "button"; allBtn.id = "allBtn"; allBtn.textContent = "ทั้งหมด";
-allBtn.addEventListener("click", () => {
+const allButton = el("button", "filter");
+allButton.type = "button";
+allButton.id = "allBtn";
+allButton.textContent = "เลือกทั้งหมด";
+allButton.addEventListener("click", () => {
   enabled = new Set(KINDS);
   save("kinds", JSON.stringify([...enabled]));
   syncFilters();
   refresh();
 });
-filtersBox.appendChild(allBtn);
+filtersBox.appendChild(allButton);
 
 function syncFilters() {
-  for (const k of KINDS) {
-    const on = enabled.has(k);
-    filterEls[k].setAttribute("aria-pressed", String(on));
-  }
+  KINDS.forEach(kind => {
+    filterButtons[kind].setAttribute("aria-pressed", String(enabled.has(kind)));
+  });
+  updateFilterWarning(lastData && lastText === input.value ? lastData.stats : null);
 }
 
-/* ---------- apply enabled filters to server segments ---------- */
-function applyFilters(segments) {
-  const out = [];
-  const stats = { email: 0, card: 0, phone: 0, dob: 0, address: 0 };
-  let masked = "";
-  for (const s of segments) {
-    if (s.kind && !enabled.has(s.kind)) {
-      out.push({ text: s.orig, kind: null });
-      masked += s.orig;
-    } else {
-      out.push(s);
-      masked += s.text;
-      if (s.kind) stats[s.kind]++;
-    }
+function updateFilterWarning(stats) {
+  const disabledKinds = KINDS.filter(kind => !enabled.has(kind));
+  if (!disabledKinds.length) {
+    filterWarning.hidden = true;
+    filterWarning.textContent = "";
+    return;
   }
-  return { segments: out, stats, masked };
-}
-
-/* ---------- backdrop (highlight behind textarea) ---------- */
-function paintBackdrop(segments) {
-  const frag = document.createDocumentFragment();
-  if (segments && showBackdrop) {
-    for (const s of segments) {
-      if (s.kind) {
-        const m = el("mark"); m.dataset.k = s.kind; m.textContent = s.orig;
-        frag.appendChild(m);
-      } else {
-        frag.appendChild(document.createTextNode(s.text));
-      }
-    }
+  const exposed = disabledKinds
+    .map(kind => ({ kind, count: stats ? Number(stats[kind] || 0) : 0 }))
+    .filter(item => item.count > 0);
+  if (exposed.length) {
+    const details = exposed.map(item => LABELS[item.kind] + " " + item.count + " รายการ").join(", ");
+    filterWarning.textContent = "พบข้อมูลที่ยังไม่ปกปิด: " + details + ". ข้อมูลเหล่านี้จะคงข้อความเดิมไว้ในผลลัพธ์และไฟล์ส่งออก";
   } else {
-    frag.appendChild(document.createTextNode(input.value));
+    filterWarning.textContent = "หมวดที่ไม่ได้เลือกจะไม่ถูกปกปิด หากพบข้อมูลในหมวดนั้น ข้อความเดิมจะอยู่ในผลลัพธ์และไฟล์ส่งออก";
   }
-  frag.appendChild(document.createTextNode("\u200b"));
-  backdrop.replaceChildren(frag);
+  filterWarning.hidden = false;
+}
+
+function applyFilters(segments) {
+  const filteredSegments = [];
+  const stats = { ...ZERO };
+  const unmaskedStats = { ...ZERO };
+  let masked = "";
+  let unmaskedTotal = 0;
+
+  for (const segment of segments) {
+    if (segment.kind && !enabled.has(segment.kind)) {
+      filteredSegments.push({ text: segment.orig, kind: null, unmaskedKind: segment.kind });
+      masked += segment.orig;
+      unmaskedStats[segment.kind]++;
+      unmaskedTotal++;
+      continue;
+    }
+    filteredSegments.push(segment);
+    masked += segment.text;
+    if (segment.kind) stats[segment.kind]++;
+  }
+  return { segments: filteredSegments, stats, unmaskedStats, unmaskedTotal, masked };
+}
+
+function paintBackdrop(segments) {
+  const fragment = document.createDocumentFragment();
+  if (segments && showBackdrop) {
+    segments.forEach(segment => {
+      if (segment.kind || segment.unmaskedKind) {
+        const mark = el("mark", segment.unmaskedKind ? "unmasked" : "");
+        mark.dataset.k = segment.unmaskedKind || segment.kind;
+        mark.textContent = segment.orig;
+        fragment.appendChild(mark);
+      } else {
+        fragment.appendChild(document.createTextNode(segment.text));
+      }
+    });
+  } else {
+    fragment.appendChild(document.createTextNode(input.value));
+  }
+  fragment.appendChild(document.createTextNode("\u200b"));
+  backdrop.replaceChildren(fragment);
   syncScroll();
 }
 
-/* ---------- output ---------- */
-function emptyState() {
+function emptyState(title, description) {
   const box = el("div", "empty");
-  const ico = el("div", "ico"); ico.textContent = "🔍";
-  const p = el("p"); p.textContent = "ผลลัพธ์จะปรากฏที่นี่";
-  const s = el("span"); s.textContent = "เริ่มพิมพ์ข้อความด้านซ้ายได้เลย";
-  box.append(ico, p, s);
+  const heading = el("strong");
+  heading.textContent = title || "ผลลัพธ์จะแสดงที่นี่";
+  const detail = el("span");
+  detail.textContent = description || "เริ่มพิมพ์ข้อความทางด้านซ้าย";
+  box.append(heading, detail);
   return box;
+}
+
+function paintOutputMessage(title, description) {
+  output.replaceChildren(emptyState(title, description));
 }
 
 function paintOutput(segments) {
@@ -605,236 +531,375 @@ function paintOutput(segments) {
     output.replaceChildren(emptyState());
     return { lines: 0, hits: 0 };
   }
+
   const lines = [];
-  function newLine() {
-    const row = el("div", "ln");
-    const tx = el("span", "tx");
-    row.appendChild(tx);
-    lines.push({ row, tx, hit: false });
-    return lines[lines.length - 1];
-  }
-  let cur = newLine();
-  for (const s of segments) {
-    const parts = s.text.split("\n");
-    parts.forEach((part, i) => {
-      if (i > 0) cur = newLine();
+  const makeLine = () => {
+    const row = el("div", "line");
+    const number = el("span", "line-number");
+    number.textContent = String(lines.length + 1);
+    const text = el("span", "tx");
+    row.append(number, text);
+    const line = { row, text, hit: false };
+    lines.push(line);
+    return line;
+  };
+
+  let current = makeLine();
+  segments.forEach(segment => {
+    const parts = segment.text.split("\n");
+    parts.forEach((part, index) => {
+      if (index > 0) current = makeLine();
       if (!part) return;
-      if (s.kind) {
-        const m = el("mark");
-        m.dataset.k = s.kind;
-        m.dataset.label = LABELS[s.kind];
-        m.textContent = part;
-        cur.tx.appendChild(m);
-        cur.hit = true;
+      if (segment.kind || segment.unmaskedKind) {
+        const unmasked = Boolean(segment.unmaskedKind);
+        const mark = el("mark", unmasked ? "unmasked" : "");
+        mark.dataset.k = segment.unmaskedKind || segment.kind;
+        if (unmasked) mark.title = "ข้อมูลนี้ไม่ได้ถูกปกปิด";
+        mark.textContent = part;
+        current.text.appendChild(mark);
+        current.hit = true;
       } else {
-        cur.tx.appendChild(document.createTextNode(part));
+        current.text.appendChild(document.createTextNode(part));
       }
     });
-  }
-  const frag = document.createDocumentFragment();
+  });
+
+  const fragment = document.createDocumentFragment();
   let hits = 0;
-  for (const l of lines) {
-    if (l.hit) { l.row.classList.add("hit"); hits++; }
-    frag.appendChild(l.row);
-  }
-  output.replaceChildren(frag);
+  lines.forEach(line => {
+    if (line.hit) {
+      line.row.classList.add("hit");
+      hits++;
+    }
+    fragment.appendChild(line.row);
+  });
+  output.replaceChildren(fragment);
   return { lines: lines.length, hits };
 }
 
-/* ---------- animated total ---------- */
-function animateTotal(target) {
-  const from = shownTotal;
-  shownTotal = target;
-  if (from === target) { totalNum.textContent = target; return; }
-  const t0 = performance.now(), dur = 420;
-  function step(t) {
-    const p = Math.min(1, (t - t0) / dur);
-    const e = 1 - Math.pow(1 - p, 3);
-    totalNum.textContent = Math.round(from + (target - from) * e);
-    if (p < 1) requestAnimationFrame(step);
-  }
-  requestAnimationFrame(step);
+function updateCounts(stats) {
+  KINDS.forEach(kind => {
+    countElements[kind].textContent = String(stats[kind] || 0);
+  });
 }
 
-/* ---------- meter ---------- */
-function paintMeter(stats, info, hasText) {
-  let total = 0;
-  for (const k of KINDS) total += stats[k] || 0;
-  for (const k of KINDS) {
-    const v = stats[k] || 0;
-    countEls[k].textContent = v;
-    bars[k].style.width = total ? (v / total * 100) + "%" : "0%";
-  }
-  animateTotal(total);
-  outMeta.textContent = total + " รายการ";
+function paintSummary(filteredStats, info, hasText, allStats, unmaskedTotal) {
+  const detected = KINDS.reduce((sum, kind) => sum + Number((allStats || ZERO)[kind] || 0), 0);
+  const masked = KINDS.reduce((sum, kind) => sum + Number(filteredStats[kind] || 0), 0);
+  totalNum.textContent = String(detected);
+  outMeta.textContent = hasText ? "ปกปิด " + masked + " / พบ " + detected : "0 รายการ";
+  updateCounts(allStats || ZERO);
 
-  if (!hasText) summary.textContent = "พิมพ์หรือวางข้อความเพื่อเริ่มตรวจสอบ";
-  else if (total) summary.textContent = "ตรวจพบและปกป้อง " + total + " รายการ · อยู่ใน " + info.hits + " จาก " + info.lines + " บรรทัด";
-  else if (enabled.size < KINDS.length) summary.textContent = "ไม่พบข้อมูลในประเภทที่เลือกไว้ (บางประเภทถูกปิดอยู่)";
-  else summary.textContent = "ไม่พบข้อมูลส่วนบุคคลในข้อความนี้ 🎉";
+  if (!hasText) {
+    summaryText.textContent = "พิมพ์หรือวางข้อความเพื่อเริ่มตรวจสอบ";
+    summaryDetail.textContent = "จำนวนข้อมูลที่ตรวจพบในทุกประเภท";
+  } else if (detected) {
+    summaryText.textContent = "พบข้อมูล " + detected + " รายการ · ปกปิดแล้ว " + masked + " รายการ";
+    summaryDetail.textContent = unmaskedTotal ? "ยังมีข้อมูล " + unmaskedTotal + " รายการที่ไม่ได้ปกปิด" : "ตรวจสอบผลลัพธ์ก่อนนำไปเผยแพร่";
+  } else {
+    summaryText.textContent = "ไม่พบข้อมูลส่วนบุคคลตามรูปแบบที่รองรับ";
+    summaryDetail.textContent = "รูปแบบข้อมูลอื่นอาจไม่ถูกตรวจพบ";
+  }
 }
 
-/* ---------- render from a server payload ---------- */
+function setActionsEnabled(enabledState) {
+  copyBtn.disabled = !enabledState;
+  saveBtn.disabled = !enabledState;
+}
+
 function render(data) {
-  const f = applyFilters(data.segments);
-  plain = f.masked;
-  paintBackdrop(f.segments);
-  paintMeter(f.stats, paintOutput(f.segments), true);
+  const filtered = applyFilters(data.segments);
+  plain = filtered.masked;
+  resultReady = true;
+  paintBackdrop(filtered.segments);
+  const info = paintOutput(filtered.segments);
+  paintSummary(filtered.stats, info, true, data.stats, filtered.unmaskedTotal);
+  statusText.textContent = "ตรวจสอบเสร็จแล้ว";
+  setActionsEnabled(Boolean(input.value));
+  updateFilterWarning(data.stats);
 }
 
-/* re-render without a network round-trip (used by filter toggles) */
+function resetResultForPending() {
+  lastData = null;
+  lastText = "";
+  plain = "";
+  resultReady = false;
+  setActionsEnabled(false);
+  paintBackdrop(null);
+  updateCounts(ZERO);
+  totalNum.textContent = "0";
+  outMeta.textContent = "รอตรวจสอบ";
+  summaryText.textContent = "กำลังตรวจสอบข้อความล่าสุด…";
+  summaryDetail.textContent = "ผลลัพธ์จะพร้อมเมื่อการตรวจสอบเสร็จสิ้น";
+  statusText.textContent = "รอตรวจสอบ…";
+  paintOutputMessage("กำลังตรวจสอบข้อความ", "ผลลัพธ์ก่อนหน้าถูกนำออกเพื่อป้องกันการคัดลอกข้อมูลเก่า");
+  updateFilterWarning(null);
+}
+
+function showError(message, description) {
+  lastData = null;
+  lastText = "";
+  plain = "";
+  resultReady = false;
+  setActionsEnabled(false);
+  statusText.textContent = "ตรวจสอบไม่สำเร็จ";
+  outMeta.textContent = "ไม่มีผลลัพธ์";
+  updateCounts(ZERO);
+  totalNum.textContent = "0";
+  summaryText.textContent = message;
+  summaryDetail.textContent = description;
+  paintOutputMessage(message, description);
+  updateFilterWarning(null);
+}
+
 function refresh() {
-  if (lastData && lastText === input.value) render(lastData);
-  else run();
+  if (lastData && lastText === input.value) {
+    render(lastData);
+    return;
+  }
+  clearTimeout(timer);
+  run();
 }
 
-/* ---------- main run ---------- */
 async function run() {
-  const mine = ++seq;
+  clearTimeout(timer);
+  timer = null;
+  const currentSequence = ++sequence;
   const text = input.value;
   inMeta.textContent = text.length.toLocaleString("th-TH") + " ตัวอักษร";
 
-  if (ctrl) ctrl.abort();
+  if (controller) controller.abort();
+  controller = null;
+
   if (!text) {
-    lastData = null; lastText = "";
+    lastData = null;
+    lastText = "";
     plain = "";
-    paintBackdrop(null);
+    resultReady = false;
+    setActionsEnabled(false);
     outPanel.classList.remove("busy");
-    paintMeter(ZERO, paintOutput([]), false);
+    paintBackdrop(null);
+    paintOutput([]);
+    paintSummary(ZERO, { lines: 0, hits: 0 }, false, ZERO, 0);
+    statusText.textContent = "รอรับข้อความ";
+    updateFilterWarning(null);
     return;
   }
 
-  ctrl = new AbortController();
+  const requestBody = JSON.stringify({ text });
+  if (new TextEncoder().encode(requestBody).length > MAX_BODY_BYTES) {
+    showError("ข้อความยาวเกินไป", "จำกัดขนาดคำขอไว้ที่ 2 MB");
+    outPanel.classList.remove("busy");
+    toast("ข้อความยาวเกินไป");
+    return;
+  }
+
+  controller = new AbortController();
   outPanel.classList.add("busy");
+  statusText.textContent = "กำลังตรวจสอบ…";
   try {
-    const res = await fetch("/api/mask", {
+    const response = await fetch("/api/mask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text }),
-      signal: ctrl.signal
+      body: requestBody,
+      signal: controller.signal
     });
-    if (res.status === 413) { toast("ข้อความยาวเกินไป"); return; }
-    if (!res.ok) throw new Error(res.status);
-    const data = await res.json();
-    if (mine !== seq) return;
+    if (currentSequence !== sequence) return;
+    if (response.status === 413) {
+      showError("ข้อความยาวเกินไป", "ลดขนาดข้อความแล้วลองอีกครั้ง");
+      return;
+    }
+    if (!response.ok) throw new Error(String(response.status));
+    const data = await response.json();
+    if (currentSequence !== sequence) return;
     lastData = data;
     lastText = text;
     render(data);
-  } catch (e) {
-    if (e.name === "AbortError") return;
-    toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
+  } catch (error) {
+    if (error.name !== "AbortError" && currentSequence === sequence) {
+      showError("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้", "ตรวจสอบว่าเซิร์ฟเวอร์กำลังทำงาน แล้วกด Ctrl+Enter เพื่อลองใหม่");
+      toast("ตรวจสอบข้อความไม่สำเร็จ");
+    }
   } finally {
-    if (mine === seq) outPanel.classList.remove("busy");
+    if (currentSequence === sequence) outPanel.classList.remove("busy");
   }
 }
 
 function onInput() {
-  paintBackdrop(null);
   clearTimeout(timer);
-  timer = setTimeout(run, 130);
+  if (controller) controller.abort();
+  controller = null;
+  sequence++;
+  inMeta.textContent = input.value.length.toLocaleString("th-TH") + " ตัวอักษร";
+  if (!input.value) {
+    resetResultForPending();
+    outPanel.classList.remove("busy");
+    paintOutput([]);
+    paintSummary(ZERO, { lines: 0, hits: 0 }, false, ZERO, 0);
+    statusText.textContent = "รอรับข้อความ";
+    updateFilterWarning(null);
+    return;
+  }
+  resetResultForPending();
+  outPanel.classList.add("busy");
+  timer = setTimeout(run, 180);
 }
 
-/* ---------- events ---------- */
 input.addEventListener("input", onInput);
-
-document.getElementById("modeSeg").addEventListener("click", e => {
-  const b = e.target.closest("button");
-  if (b) applyMode(b.dataset.mode);
+themeBtn.addEventListener("click", () => applyTheme(root.dataset.theme === "dark" ? "light" : "dark"));
+document.getElementById("modeSeg").addEventListener("click", event => {
+  const button = event.target.closest("button[data-mode]");
+  if (button) applyMode(button.dataset.mode);
 });
-document.getElementById("themes").addEventListener("click", e => {
-  const b = e.target.closest("button");
-  if (b) applyTheme(b.dataset.theme);
-});
-
 document.getElementById("clearBtn").addEventListener("click", () => {
   input.value = "";
   input.scrollTop = 0;
   onInput();
   input.focus();
 });
+document.getElementById("exampleBtn").addEventListener("click", () => {
+  input.value = "ชื่อ: สมชาย ตัวอย่าง\nโทร: 081-234-5678\nอีเมล: somchai@example.com\nวันเกิด: 12/05/1998\nบัตรเครดิต: 4111 1111 1111 1111\nที่อยู่: 123/45 ถนนสุขุมวิท";
+  input.scrollTop = 0;
+  onInput();
+  input.focus();
+});
 
-function syncHlBtn() {
+document.getElementById("fileBtn").addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files && fileInput.files[0];
+  fileInput.value = "";
+  loadFile(file);
+});
+
+function syncHighlightButton() {
   hlBtn.setAttribute("aria-pressed", String(showBackdrop));
 }
+
 hlBtn.addEventListener("click", () => {
   showBackdrop = !showBackdrop;
   save("backdrop", showBackdrop ? "on" : "off");
-  syncHlBtn();
+  syncHighlightButton();
   paintBackdrop(lastData && lastText === input.value ? applyFilters(lastData.segments).segments : null);
 });
 
-async function doCopy() {
-  if (!plain) { toast("ยังไม่มีผลลัพธ์ให้คัดลอก"); return; }
+function getUnmaskedCount() {
+  if (!lastData || lastText !== input.value) return 0;
+  return KINDS.reduce((sum, kind) => sum + (enabled.has(kind) ? 0 : Number(lastData.stats[kind] || 0)), 0);
+}
+
+function confirmExport(action) {
+  const count = getUnmaskedCount();
+  if (!count) return true;
+  return window.confirm("ยังมีข้อมูลส่วนบุคคล " + count + " รายการที่ไม่ได้ปกปิด การ" + action + "จะรวมข้อมูลเหล่านี้ในรูปแบบเดิม ต้องการดำเนินการต่อหรือไม่?");
+}
+
+async function copyResult() {
+  if (!resultReady || lastText !== input.value) return;
+  if (!confirmExport("คัดลอก")) return;
   try {
     await navigator.clipboard.writeText(plain);
-    toast("คัดลอกผลลัพธ์แล้ว ✓");
-  } catch (e) {
-    toast("คัดลอกไม่สำเร็จ");
+    toast("คัดลอกผลลัพธ์แล้ว");
+  } catch (_) {
+    toast("คัดลอกไม่สำเร็จ โปรดอนุญาตให้เข้าถึงคลิปบอร์ด");
   }
 }
-document.getElementById("copyBtn").addEventListener("click", doCopy);
 
-document.getElementById("saveBtn").addEventListener("click", () => {
-  if (!plain) { toast("ยังไม่มีผลลัพธ์ให้ดาวน์โหลด"); return; }
+copyBtn.addEventListener("click", copyResult);
+saveBtn.addEventListener("click", () => {
+  if (!resultReady || lastText !== input.value) return;
+  if (!confirmExport("ดาวน์โหลด")) return;
   const blob = new Blob([plain], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
-  const a = el("a");
-  a.href = url; a.download = "masked.txt";
-  document.body.appendChild(a); a.click(); a.remove();
+  const link = el("a");
+  link.href = url;
+  link.download = "masked.txt";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  toast("ดาวน์โหลดแล้ว ⬇️");
+  toast("ดาวน์โหลดแล้ว");
 });
 
-document.addEventListener("keydown", e => {
-  const mod = e.ctrlKey || e.metaKey;
-  if (!mod) return;
-  if (e.key === "Enter") { e.preventDefault(); run(); }
-  else if (e.shiftKey && (e.key === "c" || e.key === "C")) { e.preventDefault(); doCopy(); }
+document.addEventListener("keydown", event => {
+  if (!(event.ctrlKey || event.metaKey)) return;
+  if (event.key === "Enter") {
+    event.preventDefault();
+    run();
+  } else if (event.shiftKey && event.key.toLowerCase() === "c") {
+    event.preventDefault();
+    copyResult();
+  }
 });
 
-/* ---------- drag & drop ---------- */
-["dragenter", "dragover"].forEach(ev =>
-  inPanel.addEventListener(ev, e => { e.preventDefault(); inPanel.classList.add("drag"); }));
-["dragleave", "drop"].forEach(ev =>
-  inPanel.addEventListener(ev, e => { e.preventDefault(); inPanel.classList.remove("drag"); }));
-inPanel.addEventListener("drop", e => {
-  const file = e.dataTransfer.files[0];
+function loadFile(file) {
   if (!file) return;
-  if (file.size > 900000) { toast("ไฟล์ใหญ่เกินไป (สูงสุด 900 KB)"); return; }
+  if (file.size > 900000) {
+    toast("ไฟล์ใหญ่เกินไป ขนาดสูงสุด 900 KB");
+    return;
+  }
+  if (!/\.(txt|log)$/i.test(file.name) && file.type !== "text/plain") {
+    toast("โปรดเลือกไฟล์ .txt หรือ .log");
+    return;
+  }
   const reader = new FileReader();
-  reader.onload = () => { input.value = String(reader.result); onInput(); };
+  reader.onload = () => {
+    input.value = String(reader.result || "");
+    input.scrollTop = 0;
+    onInput();
+  };
+  reader.onerror = () => toast("อ่านไฟล์ไม่สำเร็จ");
   reader.readAsText(file);
-});
-window.addEventListener("dragover", e => e.preventDefault());
-window.addEventListener("drop", e => e.preventDefault());
+}
 
-/* ---------- boot ---------- */
-applyTheme(read("theme") || "aurora");
+["dragenter", "dragover"].forEach(type => {
+  inPanel.addEventListener(type, event => {
+    event.preventDefault();
+    inPanel.classList.add("drag");
+  });
+});
+["dragleave", "drop"].forEach(type => {
+  inPanel.addEventListener(type, event => {
+    event.preventDefault();
+    inPanel.classList.remove("drag");
+  });
+});
+inPanel.addEventListener("drop", event => {
+  const file = event.dataTransfer.files[0];
+  loadFile(file);
+});
+window.addEventListener("dragover", event => event.preventDefault());
+window.addEventListener("drop", event => event.preventDefault());
+
+applyTheme(read("theme") || "light");
 applyMode(read("mode") || "highlight");
 syncFilters();
-syncHlBtn();
-syncSbw();
+syncHighlightButton();
+syncScrollbarWidth();
+paintOutput([]);
+setActionsEnabled(false);
 run();
-window.addEventListener("load", syncSbw);
+window.addEventListener("load", syncScrollbarWidth);
 </script>
 </body>
 </html>"""
 
 
+
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, status, ctype, body):
+    def _send(self, status, content_type, body):
         self.send_response(status)
-        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
-    def _json(self, status, obj):
-        self._send(status, "application/json; charset=utf-8", json.dumps(obj).encode("utf-8"))
+    def _json(self, status, value):
+        body = json.dumps(value, ensure_ascii=False).encode("utf-8")
+        self._send(status, "application/json; charset=utf-8", body)
 
     def do_GET(self):
-        path = self.path.split("?")[0]
+        path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
             self._send(200, "text/html; charset=utf-8", HTML_PAGE.encode("utf-8"))
         else:
@@ -844,20 +909,24 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/api/mask":
             self._json(404, {"error": "not found"})
             return
+
         try:
-            n = int(self.headers.get("Content-Length") or 0)
+            length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             self._json(400, {"error": "bad length"})
             return
-        if n < 0 or n > MAX_BODY_BYTES:
+
+        if length < 0 or length > MAX_BODY_BYTES:
             self._json(413, {"error": "payload too large"})
             return
+
         try:
-            payload = json.loads(self.rfile.read(n) or b"{}")
+            payload = json.loads(self.rfile.read(length) or b"{}")
             text = str(payload.get("text", ""))
         except (ValueError, AttributeError):
             self._json(400, {"error": "invalid json"})
             return
+
         masked, segments, stats = mask_text(text)
         self._json(200, {"masked": masked, "segments": segments, "stats": stats})
 
