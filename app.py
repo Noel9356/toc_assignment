@@ -121,7 +121,7 @@ def mask_text(text):
 
 
 HTML_PAGE = r"""<!DOCTYPE html>
-<html lang="th" data-theme="light" data-mode="highlight">
+<html lang="th" data-theme="dark" data-mode="highlight">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -171,9 +171,7 @@ button { cursor: pointer; }
 button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button:disabled { cursor: not-allowed; opacity: .48; }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 15px max(20px, calc((100% - 1180px) / 2)); background: var(--panel); border-bottom: 1px solid var(--line); }
-.brand { min-width: 0; }
-.brand h1 { margin: 0; font-size: 1.1rem; font-weight: 700; }
-.brand p { margin: 2px 0 0; color: var(--muted); font-size: .86rem; }
+.topbar h1 { margin: 0; font-size: 1.1rem; font-weight: 700; }
 .top-actions { display: flex; align-items: center; gap: 8px; }
 .button { min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); font-size: .9rem; }
 .button:hover:not(:disabled) { border-color: var(--accent); }
@@ -192,8 +190,6 @@ main { width: min(1180px, calc(100% - 40px)); margin: 24px auto 40px; }
 [data-k="dob"] { --kind-color: var(--dob); }
 [data-k="address"] { --kind-color: var(--address); }
 #allBtn { color: var(--accent); }
-.filter-warning { margin: 0 0 14px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--line)); border-radius: 7px; background: var(--warning-bg); color: var(--warning); font-size: .88rem; }
-.filter-warning[hidden] { display: none; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .panel { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
 .panel-head, .panel-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; }
@@ -206,7 +202,7 @@ main { width: min(1180px, calc(100% - 40px)); margin: 24px auto 40px; }
 #outPanel.busy .status::before { background: var(--accent); animation: pulse .9s ease-in-out infinite alternate; }
 @keyframes pulse { to { opacity: .3; } }
 .editor { position: relative; height: 390px; overflow: hidden; }
-textarea, .backdrop { width: 100%; margin: 0; padding: 15px 16px; border: 0; font: 13.5px/1.75 var(--mono); letter-spacing: normal; tab-size: 4; white-space: pre-wrap; overflow-wrap: anywhere; }
+textarea, .backdrop { width: 100%; margin: 0; padding: 15px 16px; border: 0; font: 13.5px/1.75 var(--mono); letter-spacing: normal; tab-size: 4; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; }
 textarea { position: absolute; inset: 0; height: 100%; z-index: 1; resize: none; overflow: auto; background: transparent; color: var(--text); caret-color: var(--accent); scrollbar-gutter: stable; }
 textarea::placeholder { color: var(--muted); opacity: 1; }
 .backdrop { position: absolute; top: 0; left: 0; padding-right: calc(16px + var(--sbw, 0px)); color: transparent; pointer-events: none; }
@@ -236,7 +232,6 @@ html[data-mode="redact"] .tx mark:not(.unmasked):hover { color: #fff; }
 .summary-number { min-width: 38px; font: 700 1.5rem/1 var(--mono); color: var(--accent); }
 .summary-text { font-size: .92rem; }
 .summary-text small { display: block; margin-top: 2px; color: var(--muted); font-size: .82rem; }
-.privacy-note { margin: 10px 2px 0; color: var(--muted); font-size: .83rem; }
 .toast { position: fixed; bottom: 20px; left: 50%; z-index: 5; max-width: calc(100% - 32px); padding: 9px 14px; border-radius: 7px; background: var(--text); color: var(--bg); opacity: 0; pointer-events: none; transform: translate(-50%, 8px); transition: opacity .15s, transform .15s; font-size: .9rem; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .panel.drag { outline: 2px dashed var(--accent); outline-offset: -5px; }
@@ -244,7 +239,6 @@ html[data-mode="redact"] .tx mark:not(.unmasked):hover { color: #fff; }
 @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } .editor, .output { height: 320px; } }
 @media (max-width: 520px) {
   .topbar { align-items: flex-start; padding: 13px 16px; }
-  .brand p { max-width: 220px; }
   main { width: calc(100% - 24px); margin-top: 16px; }
   .panel-head, .panel-foot { padding: 10px; }
   .hint { width: 100%; margin-left: 0; }
@@ -256,17 +250,13 @@ html[data-mode="redact"] .tx mark:not(.unmasked):hover { color: #fff; }
 </head>
 <body>
 <header class="topbar">
-  <div class="brand">
-    <h1>PDPA Data Masking</h1>
-    <p>ค้นหาและปกปิดข้อมูลส่วนบุคคลในข้อความ</p>
-  </div>
+  <h1>PDPA Data Masking</h1>
   <div class="top-actions">
-    <button class="button" id="themeBtn" type="button" aria-pressed="false">โหมดมืด</button>
+    <button class="button" id="themeBtn" type="button" aria-pressed="true">โหมดสว่าง</button>
   </div>
 </header>
 <main>
   <div class="filters" id="filters"><span class="filters-title">ประเภทข้อมูลที่ต้องการปกปิด</span></div>
-  <p class="filter-warning" id="filterWarning" role="alert" hidden></p>
   <div class="grid">
     <section class="panel" id="inPanel">
       <div class="panel-head"><span>ข้อความต้นฉบับ</span><span class="meta" id="inMeta">0 ตัวอักษร</span></div>
@@ -301,7 +291,6 @@ html[data-mode="redact"] .tx mark:not(.unmasked):hover { color: #fff; }
     <div class="summary-number" id="totalNum">0</div>
     <div class="summary-text"><span id="summaryText">พิมพ์หรือวางข้อความเพื่อเริ่มตรวจสอบ</span><small id="summaryDetail">จำนวนข้อมูลที่ตรวจพบในทุกประเภท</small></div>
   </section>
-  <p class="privacy-note">การตรวจจับอาศัยรูปแบบข้อมูลที่กำหนดไว้ จึงอาจพลาดข้อมูลส่วนบุคคลบางรูปแบบ ควรตรวจผลลัพธ์ก่อนนำไปเผยแพร่</p>
 </main>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
@@ -324,7 +313,6 @@ const summaryDetail = document.getElementById("summaryDetail");
 const totalNum = document.getElementById("totalNum");
 const toastEl = document.getElementById("toast");
 const filtersBox = document.getElementById("filters");
-const filterWarning = document.getElementById("filterWarning");
 const hlBtn = document.getElementById("hlBtn");
 const themeBtn = document.getElementById("themeBtn");
 const copyBtn = document.getElementById("copyBtn");
@@ -372,11 +360,11 @@ function toast(message) {
 }
 
 function applyTheme(theme) {
-  const value = theme === "dark" ? "dark" : "light";
+  const value = theme === "light" ? "light" : "dark";
   root.dataset.theme = value;
   themeBtn.textContent = value === "dark" ? "โหมดสว่าง" : "โหมดมืด";
   themeBtn.setAttribute("aria-pressed", String(value === "dark"));
-  save("theme", value);
+  save("themePreference", value);
 }
 
 function applyMode(mode) {
@@ -396,7 +384,7 @@ function syncScrollbarWidth() {
 }
 
 function syncScroll() {
-  backdrop.style.transform = "translateY(" + (-input.scrollTop) + "px)";
+  backdrop.style.transform = "translate3d(0, " + (-input.scrollTop) + "px, 0)";
 }
 
 window.addEventListener("resize", () => {
@@ -447,32 +435,22 @@ function syncFilters() {
   KINDS.forEach(kind => {
     filterButtons[kind].setAttribute("aria-pressed", String(enabled.has(kind)));
   });
-  updateFilterWarning(lastData && lastText === input.value ? lastData.stats : null);
+  updateSummaryWarning();
 }
 
-function updateFilterWarning(stats) {
-  const disabledKinds = KINDS.filter(kind => !enabled.has(kind));
-  if (!disabledKinds.length) {
-    filterWarning.hidden = true;
-    filterWarning.textContent = "";
-    return;
-  }
-  const exposed = disabledKinds
-    .map(kind => ({ kind, count: stats ? Number(stats[kind] || 0) : 0 }))
-    .filter(item => item.count > 0);
+function updateSummaryWarning() {
+  if (!lastData || lastText !== input.value) return;
+  const exposed = KINDS
+    .filter(kind => !enabled.has(kind) && Number(lastData.stats[kind] || 0) > 0)
+    .map(kind => LABELS[kind] + " " + Number(lastData.stats[kind] || 0) + " รายการ");
   if (exposed.length) {
-    const details = exposed.map(item => LABELS[item.kind] + " " + item.count + " รายการ").join(", ");
-    filterWarning.textContent = "พบข้อมูลที่ยังไม่ปกปิด: " + details + ". ข้อมูลเหล่านี้จะคงข้อความเดิมไว้ในผลลัพธ์และไฟล์ส่งออก";
-  } else {
-    filterWarning.textContent = "หมวดที่ไม่ได้เลือกจะไม่ถูกปกปิด หากพบข้อมูลในหมวดนั้น ข้อความเดิมจะอยู่ในผลลัพธ์และไฟล์ส่งออก";
+    summaryDetail.textContent = "พบข้อมูลที่ยังไม่ปกปิด: " + exposed.join(", ");
   }
-  filterWarning.hidden = false;
 }
 
 function applyFilters(segments) {
   const filteredSegments = [];
   const stats = { ...ZERO };
-  const unmaskedStats = { ...ZERO };
   let masked = "";
   let unmaskedTotal = 0;
 
@@ -480,7 +458,6 @@ function applyFilters(segments) {
     if (segment.kind && !enabled.has(segment.kind)) {
       filteredSegments.push({ text: segment.orig, kind: null, unmaskedKind: segment.kind });
       masked += segment.orig;
-      unmaskedStats[segment.kind]++;
       unmaskedTotal++;
       continue;
     }
@@ -488,7 +465,7 @@ function applyFilters(segments) {
     masked += segment.text;
     if (segment.kind) stats[segment.kind]++;
   }
-  return { segments: filteredSegments, stats, unmaskedStats, unmaskedTotal, masked };
+  return { segments: filteredSegments, stats, unmaskedTotal, masked };
 }
 
 function paintBackdrop(segments) {
@@ -616,7 +593,7 @@ function render(data) {
   paintSummary(filtered.stats, info, true, data.stats, filtered.unmaskedTotal);
   statusText.textContent = "ตรวจสอบเสร็จแล้ว";
   setActionsEnabled(Boolean(input.value));
-  updateFilterWarning(data.stats);
+  updateSummaryWarning();
 }
 
 function resetResultForPending() {
@@ -633,7 +610,6 @@ function resetResultForPending() {
   summaryDetail.textContent = "ผลลัพธ์จะพร้อมเมื่อการตรวจสอบเสร็จสิ้น";
   statusText.textContent = "รอตรวจสอบ…";
   paintOutputMessage("กำลังตรวจสอบข้อความ", "ผลลัพธ์ก่อนหน้าถูกนำออกเพื่อป้องกันการคัดลอกข้อมูลเก่า");
-  updateFilterWarning(null);
 }
 
 function showError(message, description) {
@@ -649,7 +625,6 @@ function showError(message, description) {
   summaryText.textContent = message;
   summaryDetail.textContent = description;
   paintOutputMessage(message, description);
-  updateFilterWarning(null);
 }
 
 function refresh() {
@@ -682,8 +657,7 @@ async function run() {
     paintOutput([]);
     paintSummary(ZERO, { lines: 0, hits: 0 }, false, ZERO, 0);
     statusText.textContent = "รอรับข้อความ";
-    updateFilterWarning(null);
-    return;
+      return;
   }
 
   const requestBody = JSON.stringify({ text });
@@ -737,8 +711,7 @@ function onInput() {
     paintOutput([]);
     paintSummary(ZERO, { lines: 0, hits: 0 }, false, ZERO, 0);
     statusText.textContent = "รอรับข้อความ";
-    updateFilterWarning(null);
-    return;
+      return;
   }
   resetResultForPending();
   outPanel.classList.add("busy");
@@ -870,7 +843,7 @@ inPanel.addEventListener("drop", event => {
 window.addEventListener("dragover", event => event.preventDefault());
 window.addEventListener("drop", event => event.preventDefault());
 
-applyTheme(read("theme") || "light");
+applyTheme(read("themePreference") || "dark");
 applyMode(read("mode") || "highlight");
 syncFilters();
 syncHighlightButton();
