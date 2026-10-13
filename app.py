@@ -48,31 +48,31 @@ ADDRESS = (
 PATTERN = re.compile("|".join([EMAIL, CARD, PHONE, DOB, ADDRESS]), re.IGNORECASE)
 
 
-def maskDigits(text, keep=4):
-    return re.sub(r"\d", "X", text[:-keep]) + text[-keep:]
+def hide_digits(s, keep=4):
+    return re.sub(r"\d", "X", s[:-keep]) + s[-keep:]
 
 
-def maskEmail(m):
+def mask_email(m):
     user = m.group("emailUser")
-    size = len(user)
-    if size == 1:
-        hidden = "*"
-    elif size == 2:
-        hidden = user[0] + "*"
+    n = len(user)
+    if n == 1:
+        head = "*"
+    elif n == 2:
+        head = user[0] + "*"
     else:
-        hidden = user[0] + "*" * (size - 2) + user[-1]
-    return hidden + "@" + m.group("emailDomain")
+        head = user[0] + "*" * (n - 2) + user[-1]
+    return head + "@" + m.group("emailDomain")
 
 
-def maskCard(m):
-    return maskDigits(m.group("card"))
+def mask_card(m):
+    return hide_digits(m.group("card"))
 
 
-def maskPhone(m):
-    return maskDigits(m.group("phone"))
+def mask_phone(m):
+    return hide_digits(m.group("phone"))
 
 
-def maskDob(m):
+def mask_dob(m):
     if m.group("yearA") is not None:
         sep, year = m.group("sepA"), m.group("yearA")
         date = "XX" + sep + "XX" + sep + year[:2] + "XX"
@@ -82,22 +82,22 @@ def maskDob(m):
     return m.group("dobLabel") + date
 
 
-def maskAddress(m):
+def mask_address(m):
     return m.group("addrLabel") + re.sub(r"\d", "X", m.group("addrNo"))
 
 
 MASKERS = {
-    "email": maskEmail,
-    "card": maskCard,
-    "phone": maskPhone,
-    "dob": maskDob,
-    "address": maskAddress,
+    "email": mask_email,
+    "card": mask_card,
+    "phone": mask_phone,
+    "dob": mask_dob,
+    "address": mask_address,
 }
 
 
-def maskText(text):
+def mask_text(text):
     segments = []
-    stats = {kind: 0 for kind in MASKERS}
+    stats = {k: 0 for k in MASKERS}
     pos = 0
     for m in PATTERN.finditer(text):
         if m.start() > pos:
@@ -332,38 +332,38 @@ const input = document.getElementById("input");
 const backdrop = document.getElementById("backdrop");
 const output = document.getElementById("output");
 const inPanel = document.getElementById("inPanel");
-const toast = document.getElementById("toast");
-let timer = null, seq = 0, controller = null, plain = "", toastTimer = null;
+const toastEl = document.getElementById("toast");
+let timer = null, seq = 0, ctrl = null, plain = "", toastT = null;
 
-function store(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
-function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+function save(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function read(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 
-function make(tag, className) {
+function el(tag, cls) {
     const node = document.createElement(tag);
-    if (className) node.className = className;
+    if (cls) node.className = cls;
     return node;
 }
 
-function showToast(message) {
-    toast.textContent = message;
-    toast.classList.add("show");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove("show"), 1600);
+function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastT);
+    toastT = setTimeout(() => toastEl.classList.remove("show"), 1600);
 }
 
-function setTheme(name) {
+function applyTheme(name) {
     root.dataset.theme = name;
-    document.querySelectorAll("#themes button").forEach((b) => b.classList.toggle("active", b.dataset.theme === name));
-    store("theme", name);
+    document.querySelectorAll("#themes button").forEach(b => b.classList.toggle("active", b.dataset.theme === name));
+    save("theme", name);
 }
 
-function setMode(name) {
+function applyMode(name) {
     root.dataset.mode = name;
-    document.querySelectorAll("#modeSeg button").forEach((b) => b.classList.toggle("active", b.dataset.mode === name));
-    store("mode", name);
+    document.querySelectorAll("#modeSeg button").forEach(b => b.classList.toggle("active", b.dataset.mode === name));
+    save("mode", name);
 }
 
-function autosize() {
+function fit() {
     input.style.height = "auto";
     input.style.height = Math.max(input.scrollHeight, 320) + "px";
 }
@@ -373,21 +373,21 @@ const bars = {}, chips = {}, counts = {};
     const bar = document.getElementById("bar");
     const chipBox = document.getElementById("chips");
     for (const k of KINDS) {
-        const seg = make("i"); seg.dataset.k = k; bar.appendChild(seg); bars[k] = seg;
-        const chip = make("span", "chip off"); chip.dataset.k = k;
-        const dot = make("span", "dot");
-        const count = make("b"); count.textContent = "0";
+        const seg = el("i"); seg.dataset.k = k; bar.appendChild(seg); bars[k] = seg;
+        const chip = el("span", "chip off"); chip.dataset.k = k;
+        const dot = el("span", "dot");
+        const count = el("b"); count.textContent = "0";
         chip.append(dot, document.createTextNode(LABELS[k]), count);
         chipBox.appendChild(chip); chips[k] = chip; counts[k] = count;
     }
 })();
 
-function renderBackdrop(segments) {
+function paintBackdrop(segments) {
     const frag = document.createDocumentFragment();
     if (segments) {
         for (const s of segments) {
             if (s.kind) {
-                const m = make("mark"); m.dataset.k = s.kind; m.textContent = s.orig;
+                const m = el("mark"); m.dataset.k = s.kind; m.textContent = s.orig;
                 frag.appendChild(m);
             } else {
                 frag.appendChild(document.createTextNode(s.text));
@@ -400,17 +400,17 @@ function renderBackdrop(segments) {
     backdrop.replaceChildren(frag);
 }
 
-function renderOutput(segments) {
+function paintOutput(segments) {
     if (!segments.length) {
-        const empty = make("span", "empty");
+        const empty = el("span", "empty");
         empty.textContent = "ผลลัพธ์จะแสดงที่นี่...";
         output.replaceChildren(empty);
         return { lines: 0, hits: 0 };
     }
     const lines = [];
     function newLine() {
-        const row = make("div", "ln");
-        const tx = make("span", "tx");
+        const row = el("div", "ln");
+        const tx = el("span", "tx");
         row.appendChild(tx);
         lines.push({ row, tx, hit: false });
         return lines[lines.length - 1];
@@ -422,7 +422,7 @@ function renderOutput(segments) {
             if (i > 0) cur = newLine();
             if (!part) return;
             if (s.kind) {
-                const m = make("mark"); m.dataset.k = s.kind; m.dataset.label = LABELS[s.kind]; m.textContent = part;
+                const m = el("mark"); m.dataset.k = s.kind; m.dataset.label = LABELS[s.kind]; m.textContent = part;
                 cur.tx.appendChild(m); cur.hit = true;
             } else {
                 cur.tx.appendChild(document.createTextNode(part));
@@ -439,7 +439,7 @@ function renderOutput(segments) {
     return { lines: lines.length, hits };
 }
 
-function renderMeter(stats, info, hasText) {
+function paintMeter(stats, info, hasText) {
     let total = 0;
     for (const k of KINDS) total += stats[k];
     for (const k of KINDS) {
@@ -447,92 +447,92 @@ function renderMeter(stats, info, hasText) {
         counts[k].textContent = stats[k];
         chips[k].classList.toggle("off", !stats[k]);
     }
-    let message = "พิมพ์หรือวางข้อความเพื่อเริ่มตรวจสอบ";
+    let msg = "พิมพ์หรือวางข้อความเพื่อเริ่มตรวจสอบ";
     if (hasText) {
-        message = total
+        msg = total
             ? "ตรวจพบและเซ็นเซอร์ " + total + " รายการ ใน " + info.hits + " จาก " + info.lines + " บรรทัด"
             : "ยังไม่พบข้อมูลส่วนบุคคลในข้อความ";
     }
-    document.getElementById("summary").textContent = message;
+    document.getElementById("summary").textContent = msg;
     document.getElementById("outCount").textContent = total + " รายการ";
 }
 
 const zeroStats = { email: 0, card: 0, phone: 0, dob: 0, address: 0 };
 
-async function mask() {
+async function run() {
     const mine = ++seq;
     const text = input.value;
     document.getElementById("inCount").textContent = text.length + " ตัวอักษร";
-    if (controller) controller.abort();
+    if (ctrl) ctrl.abort();
     if (!text) {
         plain = "";
-        renderBackdrop(null);
-        renderMeter(zeroStats, renderOutput([]), false);
+        paintBackdrop(null);
+        paintMeter(zeroStats, paintOutput([]), false);
         return;
     }
-    controller = new AbortController();
+    ctrl = new AbortController();
     try {
         const res = await fetch("/api/mask", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text }), signal: controller.signal
+            body: JSON.stringify({ text }), signal: ctrl.signal
         });
-        if (res.status === 413) { showToast("ข้อความยาวเกินไป"); return; }
+        if (res.status === 413) { toast("ข้อความยาวเกินไป"); return; }
         if (!res.ok) throw new Error(res.status);
         const data = await res.json();
         if (mine !== seq) return;
         plain = data.masked;
-        renderBackdrop(data.segments);
-        renderMeter(data.stats, renderOutput(data.segments), true);
+        paintBackdrop(data.segments);
+        paintMeter(data.stats, paintOutput(data.segments), true);
     } catch (e) {
         if (e.name === "AbortError") return;
-        showToast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
+        toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
     }
 }
 
 function onInput() {
-    renderBackdrop(null);
-    autosize();
+    paintBackdrop(null);
+    fit();
     clearTimeout(timer);
-    timer = setTimeout(mask, 120);
+    timer = setTimeout(run, 120);
 }
 
 input.addEventListener("input", onInput);
-window.addEventListener("resize", autosize);
+window.addEventListener("resize", fit);
 
 document.getElementById("modeSeg").addEventListener("click", (e) => {
     const b = e.target.closest("button");
-    if (b) setMode(b.dataset.mode);
+    if (b) applyMode(b.dataset.mode);
 });
 document.getElementById("themes").addEventListener("click", (e) => {
     const b = e.target.closest("button");
-    if (b) setTheme(b.dataset.theme);
+    if (b) applyTheme(b.dataset.theme);
 });
 
 document.getElementById("copyBtn").onclick = async () => {
     try {
         await navigator.clipboard.writeText(plain);
-        showToast("คัดลอกผลลัพธ์แล้ว");
+        toast("คัดลอกผลลัพธ์แล้ว");
     } catch (e) {
-        showToast("คัดลอกไม่สำเร็จ");
+        toast("คัดลอกไม่สำเร็จ");
     }
 };
 
 document.getElementById("saveBtn").onclick = () => {
     const blob = new Blob([plain], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
-    const a = make("a");
+    const a = el("a");
     a.href = url; a.download = "masked.txt";
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    showToast("ดาวน์โหลดแล้ว");
+    toast("ดาวน์โหลดแล้ว");
 };
 
-["dragenter", "dragover"].forEach((ev) => inPanel.addEventListener(ev, (e) => { e.preventDefault(); inPanel.classList.add("drag"); }));
-["dragleave", "drop"].forEach((ev) => inPanel.addEventListener(ev, (e) => { e.preventDefault(); inPanel.classList.remove("drag"); }));
+["dragenter", "dragover"].forEach(ev => inPanel.addEventListener(ev, (e) => { e.preventDefault(); inPanel.classList.add("drag"); }));
+["dragleave", "drop"].forEach(ev => inPanel.addEventListener(ev, (e) => { e.preventDefault(); inPanel.classList.remove("drag"); }));
 inPanel.addEventListener("drop", (e) => {
     const file = e.dataTransfer.files[0];
     if (!file) return;
-    if (file.size > 900000) { showToast("ไฟล์ใหญ่เกินไป (สูงสุด 900 KB)"); return; }
+    if (file.size > 900000) { toast("ไฟล์ใหญ่เกินไป (สูงสุด 900 KB)"); return; }
     const reader = new FileReader();
     reader.onload = () => { input.value = String(reader.result); onInput(); };
     reader.readAsText(file);
@@ -540,55 +540,55 @@ inPanel.addEventListener("drop", (e) => {
 window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("drop", (e) => e.preventDefault());
 
-setTheme(load("theme") || "aurora");
-setMode(load("mode") || "highlight");
-autosize();
-mask();
+applyTheme(read("theme") || "aurora");
+applyMode(read("mode") || "highlight");
+fit();
+run();
 </script>
 </body>
 </html>
 """
 
 
-class MaskHandler(BaseHTTPRequestHandler):
-    def sendBytes(self, status, contentType, body):
+class Handler(BaseHTTPRequestHandler):
+    def _send(self, status, ctype, body):
         self.send_response(status)
-        self.send_header("Content-Type", contentType)
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
-    def sendJson(self, status, payload):
-        body = json.dumps(payload).encode("utf-8")
-        self.sendBytes(status, "application/json; charset=utf-8", body)
+    def _json(self, status, obj):
+        self._send(status, "application/json; charset=utf-8", json.dumps(obj).encode("utf-8"))
 
     def do_GET(self):
-        if self.path.split("?")[0] in ("/", "/index.html"):
-            self.sendBytes(200, "text/html; charset=utf-8", HTML_PAGE.encode("utf-8"))
+        path = self.path.split("?")[0]
+        if path in ("/", "/index.html"):
+            self._send(200, "text/html; charset=utf-8", HTML_PAGE.encode("utf-8"))
         else:
-            self.sendJson(404, {"error": "not found"})
+            self._json(404, {"error": "not found"})
 
     def do_POST(self):
         if self.path != "/api/mask":
-            self.sendJson(404, {"error": "not found"})
+            self._json(404, {"error": "not found"})
             return
         try:
-            length = int(self.headers.get("Content-Length") or 0)
+            n = int(self.headers.get("Content-Length") or 0)
         except ValueError:
-            self.sendJson(400, {"error": "bad length"})
+            self._json(400, {"error": "bad length"})
             return
-        if length < 0 or length > MAX_BODY_BYTES:
-            self.sendJson(413, {"error": "payload too large"})
+        if n < 0 or n > MAX_BODY_BYTES:
+            self._json(413, {"error": "payload too large"})
             return
         try:
-            data = json.loads(self.rfile.read(length) or b"{}")
-            text = str(data.get("text", ""))
+            payload = json.loads(self.rfile.read(n) or b"{}")
+            text = str(payload.get("text", ""))
         except (ValueError, AttributeError):
-            self.sendJson(400, {"error": "invalid json"})
+            self._json(400, {"error": "invalid json"})
             return
-        masked, segments, stats = maskText(text)
-        self.sendJson(200, {"masked": masked, "segments": segments, "stats": stats})
+        masked, segments, stats = mask_text(text)
+        self._json(200, {"masked": masked, "segments": segments, "stats": stats})
 
     def log_message(self, fmt, *args):
         pass
@@ -596,7 +596,7 @@ class MaskHandler(BaseHTTPRequestHandler):
 
 def main():
     port = int(os.environ.get("PORT", "8000"))
-    ThreadingHTTPServer(("0.0.0.0", port), MaskHandler).serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 
 if __name__ == "__main__":
